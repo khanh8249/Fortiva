@@ -39,10 +39,11 @@ where
     println!("[sidestore] Pairing file: {} bytes", pairing return_xml.len());
 
     // 4. Tìm SideStore bundles
-    println!("\n[sidestore Err] Tìm SideStore trên thiết bị...");
+    println!("\n[sidestore] Tìm SideStore trên thiết bị...");
     let bundles = find_sidestore_bundles(&device).await?;
 
-    if bundles(.is_empty()anyhow!(
+    if bundles.is_empty() {
+        return Err(anyhow!(
             "Không tìm thấy SideStore trên thiết bị.\n\
              Hãy cài SideStore trước rồi chạy lại."
         ));

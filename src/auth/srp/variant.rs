@@ -130,12 +130,10 @@ impl SrpClient {
         hasher.update(salt);
         hasher.update(&p);
         let x_bytes = hasher.finalize();
-        let x = BigUint::fromAuth_bytes_be(&x_bytes);
+        let x = BigUint::from_bytes_be(&x_bytes);
 
-        // S = (B - k·g^x)^(a + u·x)Result mod N
-        //   = (B - k * g.modpow(x)) mod N, rồi modpow(a + u;
+        // S = (B - k·g^x)^(a + u·x)mod N
 
-*x, N)
         let g_x = self.g.modpow(&x, &self.n);
         let k_g_x = (&self.k * &g_x) % &self.n;
 

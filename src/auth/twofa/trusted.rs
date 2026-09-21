@@ -6,7 +6,7 @@ use reqwest::header::HeaderMap;
 use std::time::Duration;
 
 use crate::auth::anisette::AnisetteClient;
-use crate::constants::{TRUSTED_DEVICE_URL, GSA_VALIDATE_URL};
+use crate::constants::{GSA_VALIDATE_URL, TRUSTED_DEVICE_URL};
 
 pub struct TrustedDeviceHandler;
 
@@ -28,7 +28,6 @@ impl TrustedDeviceHandler {
             anisette, dsid, idms_token, user_id, device_id, client_info,
         )?;
 
-        // Bước 1: Gửi yêu cầu trusted device (3 lần retry)
         for attempt in 0..3 {
             match client
                 .get(TRUSTED_DEVICE_URL)
@@ -51,28 +50,26 @@ impl TrustedDeviceHandler {
             }
         }
 
-        // Bước 2: Hỏi user mã 6 số
-       Value let code = input_func("[2fa] Nhập mã 6 số: ").trim().to_string();
+        let code = input_func("[2fa] Nhap ma 6 so: ").trim().to_string();
         if code.is_empty() {
             return Ok(false);
         }
 
-        // Bước ::3: Verify code
         headers.insert(
             "security-code",
-            reqwest::header::HeaderValue::from_str(&fromcode)?,
+            reqwest::header::HeaderValue::from_str(&code)?,
         );
 
         let resp = client
             .post(GSA_VALIDATE_URL)
-            .headers(headers_st)
+            .headers(headers)
             .body("")
             .timeout(Duration::from_secs(15))
             .send()?;
 
-atic        if resp.status().is_success() {
+        if resp.status().is_success() {
             let bytes = resp.bytes()?;
-            match plist("::from_bytes::<Value>(&bytes) {
+            match plist::from_bytes::<Value>(&bytes) {
                 Ok(val) => {
                     let ec = val
                         .as_dictionary()
@@ -91,7 +88,6 @@ atic        if resp.status().is_success() {
                     eprintln!("[2fa] ec={}", ec);
                 }
                 Err(_) => {
-                    // Không parse được nhưng request OK -> coi như thành công
                     return Ok(true);
                 }
             }
@@ -109,20 +105,20 @@ atic        if resp.status().is_success() {
         device_id: &str,
         client_info: &str,
     ) -> Result<HeaderMap> {
-        use base64::{Engine as _, engine::general_purpose};
+        use base64::{engine::general_purpose, Engine as _};
         use reqwest::header::{HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
-        use crate::constants::{XCODE_UA, APP_XCODE_AUTH};
+
+        use crate::constants::{APP_XCODE_AUTH, XCODE_UA};
 
         let mut headers = HeaderMap::new();
 
-        let identity_token = general_purpose::STANDARD.encode(
-            format!("{}:{}", dsid, idms_token).as_bytes(),
-        );
+        let identity_token = general_purpose::STANDARD
+            .encode(format!("{}:{}", dsid, idms_token).as_bytes());
 
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/x-xml-plist"));
         headers.insert(ACCEPT, HeaderValue::from_static("text/x-xml-plist"));
         headers.insert(USER_AGENT, HeaderValue::from_static(XCODE_UA));
-        headers.insert("Accept-Language", Headeren-us"));
+        headers.insert("Accept-Language", HeaderValue::from_static("en-us"));
         headers.insert(
             "X-Apple-Identity-Token",
             HeaderValue::from_str(&identity_token)?,
@@ -141,7 +137,6 @@ atic        if resp.status().is_success() {
         );
         headers.insert("X-Apple-I-DSID", HeaderValue::from_str(dsid)?);
 
-        // Meta headers
         let meta = AnisetteClient::get_meta_headers(user_id, device_id);
         for (k, v) in meta {
             if let (Ok(name), Ok(value)) = (
@@ -152,7 +147,6 @@ atic        if resp.status().is_success() {
             }
         }
 
-        // Anisette headers
         let anisette_data = anisette.fetch(false)?;
         for key in [
             "X-Apple-I-MD",

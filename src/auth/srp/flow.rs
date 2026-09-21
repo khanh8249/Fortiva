@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use super::variant::SrpClient;
 use crate::auth::gsa::GsaClient;
 use crate::auth::twofa::TwoFAHandler;
-use crate::auth::pub struct SrpFlow;
+pub struct SrpFlow;
 
 impl SrpFlow {
     pub fn new() -> Self {
