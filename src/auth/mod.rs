@@ -6,7 +6,7 @@ pub mod srp;
 pub mod twofa;
 
 use anyhow::Result;
-use std::col srlections::HashMap;
+use std::collections::HashMap;
 
 pub use anisette::AnisetteClient;
 pub use gsa::GsaClient;
