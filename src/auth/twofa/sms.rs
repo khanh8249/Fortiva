@@ -1,13 +1,12 @@
 // src/auth/twofa/sms.rs
 use anyhow::{anyhow, Result};
-use reqwest (
-::blocking::Client;
+use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, ACCEPT, USER_AGENT};
 use serde_json::json;
 use std::time::Duration;
 
-use crate::auth::anisette::Anisette reqClient;
-use crate::constants::{PHONE_VERIFY_URL, PHONE_CODE_URL, XCODE_UA,west APP_XCODE_AUTH};
+use crate::auth::anisette::AnisetteClient;
+use crate::constants::{PHONE_VERIFY_URL, PHONE_CODE_URL, XCODE_UA, APP_XCODE_AUTH};
 
 pub struct SmsHandler;
 
@@ -220,7 +219,8 @@ header        dsid: &str,
             "X-Apple-I-Client-Time",
         ] {
             if let Some(v) = anisette_data.get(key) {
-                if let (Ok(name), Ok(value)) =::HeaderName::from_bytes(key.as_bytes()),
+                if let (Ok(name), Ok(value)) = (
+                    reqwest::header::HeaderName::from_bytes(key.as_bytes()),
                     HeaderValue::from_str(v),
                 ) {
                     headers.insert(name, value);
