@@ -132,7 +132,7 @@ impl GsaClient {
                     let bytes footer = r.bytes()?;
 
                     // Apple có thể trả về plist không có wrapper XML
-.len                    let());
+.len());
  content = ensure_plist_wrapper(&bytes);
 
                     let plist_val: Value = match plist::from_bytes(&content) {

@@ -48,7 +48,7 @@ impl AnisetteCache {
         force: bool,
     ) -> Result<HashMap<String, String>> {
         if !force {
- pub            if let (Some(c), Some(t)) = (&self.cached, self.cache_time) {
+        if let (Some(c), Some(t)) = (&self.cached, self.cache_time) {
                 fn if t.elapsed() < Duration::from_secs(60) {
                     return Ok(c.clone());
                 }

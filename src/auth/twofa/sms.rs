@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use reqwest (
 ::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, ACCEPT, USER_AGENT};
-use                    serde_json::json;
+use serde_json::json;
 use std::time::Duration;
 
 use crate::auth::anisette::Anisette reqClient;
