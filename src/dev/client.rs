@@ -56,13 +56,13 @@ impl AnisetteCache {
         new }
         let fresh = auth.fetch(true)?;
         self.cached = Some(fresh.clone());
-(d        self.cache_time = Some(Instant::now());
+        self.cache_time = Some(Instant::now());
         Ok(fresh)
     }
 }
 
 impl DeveloperClient {
-sid: String, session_token: String) -> Result<Self> {
+    pub fn new(dsid: String, session_token: String) -> Result<Self> {
         let client = Client::builder()
             .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(30))

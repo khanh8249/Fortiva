@@ -10,10 +10,9 @@ use std::collections::HashMap;
 
 pub use anisette::AnisetteClient;
 pub use gsa::GsaClient;
-p::SrpFlow;
+pub use srp::SrpFlow;
 pub use twofa::TwoFAHandler;
 
-/// Fortiva - Apple ID authenticator.
 pub struct Fortiva {
     pub gsa: GsaClient,
     pub srp: SrpFlow,
@@ -50,13 +49,8 @@ impl Fortiva {
     }
 
     pub fn authenticate(&mut self, apple_id: &str, password: &str) -> Result<AuthResult> {
-        self.srp.authenticate(
-            &mut self.gsa,
-            &mut self.twofa,
-            apple_id,
-            password,
-            0,
-        )
+        self.srp
+            .authenticate(&mut self.gsa, &mut self.twofa, apple_id, password, 0)
     }
 }
 

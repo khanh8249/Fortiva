@@ -25,12 +25,7 @@ pub struct AppGroup {
     pub app_group_id: Option<String>,
 }
 
-// ============================================================
-//  APP ID APIs
-// ============================================================
-
 impl DeveloperClient {
-    /// List tất cả App ID của team.
     pub fn list_app_ids_full(
         &mut self,
         auth: &mut AnisetteClient,
@@ -84,7 +79,6 @@ impl DeveloperClient {
         Ok(out)
     }
 
-    /// Tạo App ID mới.
     pub fn create_app_id_full(
         &mut self,
         auth: &mut AnisetteClient,
@@ -107,19 +101,19 @@ impl DeveloperClient {
 
         let resp = self
             .request_plist(auth, "ios/addAppId.action", params, true)
-            .context("addAppId thất b_ại")?;
+            .context("addAppId thất bại")?;
 
         let app_id = resp
             .get("appId")
-            .and_then(|v|else v.as_dictionary())
+            .and_then(|v| v.as_dictionary())
             .ok_or_else(|| {
                 let err = DevError {
-                    result_code:( resp
+                    result_code: resp
                         .get("resultCode")
                         .and_then(|v| v.as_signed_integer()),
-                    user_string||: resp
+                    user_string: resp
                         .get("userString")
-                        .or resp.get("resultString"))
+                        .or_else(|| resp.get("resultString"))
                         .and_then(|v| v.as_string())
                         .unwrap_or("?")
                         .to_string(),
@@ -146,7 +140,6 @@ impl DeveloperClient {
         })
     }
 
-    /// Đảm bảo có App ID.
     pub fn ensure_app_id(
         &mut self,
         auth: &mut AnisetteClient,
@@ -163,7 +156,6 @@ impl DeveloperClient {
         self.create_app_id_full(auth, bundle_id, name)
     }
 
-    /// Xóa App ID.
     pub fn delete_app_id(
         &mut self,
         auth: &mut AnisetteClient,
@@ -186,7 +178,6 @@ impl DeveloperClient {
         }
     }
 
-    /// Tải Team Provisioning Profile.
     pub fn download_team_provisioning_profile(
         &mut self,
         auth: &mut AnisetteClient,
@@ -256,7 +247,6 @@ impl DeveloperClient {
             .unwrap_or_else(|| anyhow!("download profile thất bại sau {} lần", delays.len())))
     }
 
-    /// Đăng ký nhiều bundle một lúc.
     pub fn register_bundles(
         &mut self,
         auth: &mut AnisetteClient,
@@ -279,14 +269,7 @@ impl DeveloperClient {
 
         Ok(out)
     }
-}
 
-// ============================================================
-//  APP GROUP APIs
-// ============================================================
-
-impl DeveloperClient {
-    /// List App Groups hiện có.
     pub fn list_app_groups(
         &mut self,
         auth: &mut AnisetteClient,
@@ -336,7 +319,6 @@ impl DeveloperClient {
         Ok(out)
     }
 
-    /// Tạo App Group.
     pub fn create_app_group(
         &mut self,
         auth: &mut AnisetteClient,
@@ -391,7 +373,6 @@ impl DeveloperClient {
         })
     }
 
-    /// Đảm bảo App Group tồn tại.
     pub fn ensure_app_group(
         &mut self,
         auth: &mut AnisetteClient,
@@ -408,7 +389,6 @@ impl DeveloperClient {
         self.create_app_group(auth, group_id, name)
     }
 
-    /// Gán App Group vào App ID.
     pub fn assign_app_group(
         &mut self,
         auth: &mut AnisetteClient,
@@ -450,13 +430,12 @@ impl DeveloperClient {
         }
 
         println!(
-            "[dev] ✅ Gán App Group {} vào {}",
+            "[dev] Gán App Group {} vào {}",
             group_id, app_id.identifier
         );
         Ok(())
     }
 
-    /// Bật Increased Memory Limit cho App ID.
     pub fn add_increased_memory_limit(
         &mut self,
         auth: &mut AnisetteClient,
@@ -494,7 +473,7 @@ impl DeveloperClient {
         }
 
         println!(
-            "[dev] ✅ Bật Increased Memory Limit cho {}",
+            "[dev] Bật Increased Memory Limit cho {}",
             app_id.identifier
         );
         Ok(())
