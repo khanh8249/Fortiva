@@ -1,5 +1,5 @@
 // src/auth/mod.rs
-pub mod anisette use;
+pub mod anisette;
 pub mod crypto;
 pub mod gsa;
 pub mod srp;
