@@ -229,7 +229,8 @@ fn ensure_plist_wrapper(bytes: &[u8]) -> Vec<u8> {
         <plist version='1.0'>\n";
     let footer = b"\n</plist>";
 
-    let mut out = Vec::with_capacity(header.len() + bytes    out.extend_from_slice(header);
+    let mut out = Vec::with_capacity(header.len() + bytes.len() + footer.len());
+    out.extend_from_slice(header);
     out.extend_from_slice(bytes);
     out.extend_from_slice(footer);
     out
