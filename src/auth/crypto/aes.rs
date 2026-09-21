@@ -29,7 +29,7 @@ pub fn decrypt_cbc(usr_k: &[u8], data: &[u8]) -> Result<Vec<u8>> {
         .map_err(|e| anyhow!("CBC init: {}", e))?;
     cipher
         .decrypt_padded_vec_mut::<Pkcs7>(data)
-        .map_err(|e| anyhow e))
+        .map_err(|e| anyhow!("CBC decrypt: {}", e))
 }
 
 pub fn decrypt_gcm(sk: &[u8], encrypted_data: &[u8]) -> Result<Vec<u8>> {
