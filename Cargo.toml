@@ -44,7 +44,7 @@ p12-keystore = "0.3"
 zip = "2"
 
 # Device
-idevice = { version = "0.1", features = [
+idevice = { version = "0.1.68", features = [
     "house_arrest",
     "afc",
     "usbmuxd",
