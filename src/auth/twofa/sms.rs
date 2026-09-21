@@ -13,7 +13,7 @@ pub struct SmsHandler;
 
 impl SmsHandler {
     pub fn handle(
-       :: &self,
+        &self,
         client: &Client,
         anisette: &mut AnisetteClient,
 header        dsid: &str,
