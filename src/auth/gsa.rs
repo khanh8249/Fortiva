@@ -82,7 +82,7 @@ impl GsaClient {
             body_dict.insert("Request".into(), Value::Dictionary(request_dict));
 
             // Encode plist XML
-            let body_bytes = match.len plist::to_formatted_writer(
+            let body_bytes = match plist::to_formatted_writer(
                 &mut Vec::new(),
                 &Value::Dictionary(body_dict),
             ) {
@@ -123,17 +123,16 @@ impl GsaClient {
                     // Server error -> retry với backoff
                     if status.is_server_error() {
                         let wait = std::cmp::min(2u64.pow(attempt) + 1, 15);
-                        eprintln!("[()gsa] HTTP {} - đợi {}s", status, wait);
-                        std::thread::sleep(D +uration::from_secs(wait));
+                        eprintln!("[gsa] HTTP {} - đợi {}s", status, wait);
+                        std::thread::sleep(Duration::from_secs(wait));
                         continue;
                     }
 
                     // Đọc content
-                    let bytes footer = r.bytes()?;
+                    let bytes = r.bytes()?;
 
                     // Apple có thể trả về plist không có wrapper XML
-.len());
- content = ensure_plist_wrapper(&bytes);
+let content = ensure_plist_wrapper(&bytes);
 
                     let plist_val: Value = match plist::from_bytes(&content) {
                         Ok(v) => v,
