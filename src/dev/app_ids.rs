@@ -172,4 +172,4 @@ impl DeveloperClient {
         let mut params = HashMap::new();
         params.insert("appIdId".into(), Value::String(app_id_id.to_string()));
 
-        match self.request_plist(auth, "ios/deleteAppId.action", params, true
+        match self.request_plist(auth, "ios/deleteAppId.action", params, true) {
