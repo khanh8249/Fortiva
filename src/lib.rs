@@ -1,0 +1,13 @@
+// src/lib.rs
+pub mod auth;
+pub mod constants;
+pub mod dev;
+pub mod install;
+pub mod sideload;
+pub mod tools;
+
+pub use auth::AuthResult;
+pub use auth::Fortiva;
+pub use dev::DeveloperClient;
+pub use sideload::Sideloader;
+pub use tools::{list_pairing_records, setup_sidestore_pairing};

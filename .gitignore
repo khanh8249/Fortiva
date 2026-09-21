@@ -1,0 +1,32 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp
+*.log
+*.tmp
+
+# Local secrets (KHÔNG commit)
+*.p12
+*.pem
+*.mobileprovision
+cookies.enc
