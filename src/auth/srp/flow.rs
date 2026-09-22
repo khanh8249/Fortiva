@@ -82,13 +82,7 @@ impl SrpFlow {
             .and_then(plist_integer)
             .ok_or_else(|| anyhow!("Response thieu 'i'"))? as u32;
 
-        let salt = general_purpose::STANDARD
-            .decode(salt_b64)
-            .context("Decode salt that bai")?;
 
-        let b_pub = general_purpose::STANDARD
-            .decode(b_b64)
-            .context("Decode B that bai")?;
 
         println!(
             "[srp] Protocol={}, iterations={}, salt_len={}, B_len={}",

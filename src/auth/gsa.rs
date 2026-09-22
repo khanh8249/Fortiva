@@ -114,6 +114,12 @@ impl GsaClient {
                     }
 
                     let bytes = r.bytes()?;
+
+                    // DEBUG: in raw response
+                    eprintln!("[gsa] === RAW RESPONSE ({} bytes) ===", bytes.len());
+                    eprintln!("{}", String::from_utf8_lossy(&bytes[..bytes.len().min(800)]));
+                    eprintln!("[gsa] ================================");
+
                     let content = ensure_plist_wrapper(&bytes);
 
                     let plist_val: Value = match plist::from_bytes(&content) {
