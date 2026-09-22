@@ -10,15 +10,17 @@ pub struct DeviceInfo {
 }
 
 /// Detect thiết bị iOS kết nối qua USB.
-pub fn detect_device() -> Result<DeviceInfo> {
+/// Hàm này là async — phải gọi trong tokio runtime.
+pub async fn detect_device() -> Result<DeviceInfo> {
     println!("[device] Đang tìm thiết bị iOS qua USB...");
 
-    let usbmuxd_addr = UsbmuxdAddr::default();
     let mut conn = UsbmuxdConnection::default()
+        .await
         .context("Kết nối usbmuxd thất bại. usbmuxd đã chạy chưa?")?;
 
     let devices = conn
         .get_devices()
+        .await
         .context("Lấy danh sách thiết bị thất bại")?;
 
     if devices.is_empty() {
@@ -26,7 +28,7 @@ pub fn detect_device() -> Result<DeviceInfo> {
             "Không tìm thấy thiết bị iOS. Kiểm tra:\n\
              - Cáp USB đã cắm chưa\n\
              - iPhone đã Trust máy này chưa\n\
-             - usbmuxd đã chạy chưa"
+             - usbmuxd đã chạy chưa (pgrep usbmuxd)"
         ));
     }
 
@@ -36,14 +38,14 @@ pub fn detect_device() -> Result<DeviceInfo> {
     println!("[device] Tìm thấy thiết bị: {}", udid);
 
     Ok(DeviceInfo {
-        udid,
+        udid: udid.clone(),
         name: format!("iPhone-{}", &udid[..8.min(udid.len())]),
     })
 }
 
 /// Kiểm tra thiết bị đã trust chưa.
-pub fn ensure_trusted(provider: &impl IdeviceProvider) -> Result<()> {
-    // idevice crate sẽ tự raise lỗi nếu chưa trust khi connect
-    // Hàm này chỉ để wrap error message
+/// Thực tế, `idevice` crate sẽ tự raise lỗi nếu chưa trust khi connect service.
+/// Hàm này chỉ để wrap error message rõ ràng hơn.
+pub fn ensure_trusted(_provider: &impl IdeviceProvider) -> Result<()> {
     Ok(())
 }
