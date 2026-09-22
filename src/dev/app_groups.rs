@@ -15,11 +15,10 @@ pub struct AppGroup {
 
 impl DeveloperClient {
     /// List App Group hiện có.
-    pub fn list_app_groups_full(
+    pub fn list_app_groups(
         &mut self,
         auth: &mut AnisetteClient,
     ) -> Result<Vec<AppGroup>> {
-        // Apple endpoint: ios/listAppGroups.action
         let resp = self
             .request_plist(auth, "ios/listAppGroups.action", HashMap::new(), true)
             .context("listAppGroups thất bại")?;
@@ -39,30 +38,27 @@ impl DeveloperClient {
 
             let group_id = dict
                 .get("identifier")
-                .or_else(|| dict.get("group_id"))
                 .and_then(|v| v.as_string())
                 .unwrap_or("")
                 .to_string();
 
-            let name = dict
-                .get("name")
-                .and_then(|v| v.as_string())
-                .unwrap_or("(unknown)")
-                .to_string();
-
-            let app_group_id = dict
-                .get("appGroupId")
-                .or_else(|| dict.get("id"))
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string());
-
-            if !group_id.is_empty() {
-                out.push(AppGroup {
-                    group_id,
-                    name,
-                    app_group_id,
-                });
+            if group_id.is_empty() {
+                continue;
             }
+
+            out.push(AppGroup {
+                group_id,
+                name: dict
+                    .get("name")
+                    .and_then(|v| v.as_string())
+                    .unwrap_or("(unknown)")
+                    .to_string(),
+                app_group_id: dict
+                    .get("appGroupId")
+                    .or_else(|| dict.get("id"))
+                    .and_then(|v| v.as_string())
+                    .map(|s| s.to_string()),
+            });
         }
 
         Ok(out)
@@ -72,24 +68,22 @@ impl DeveloperClient {
     pub fn create_app_group(
         &mut self,
         auth: &mut AnisetteClient,
-        name: &str,
         group_id: &str,
+        name: &str,
     ) -> Result<AppGroup> {
         let sanitized: String = name
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == ' ')
             .collect();
+        let sanitized = if sanitized.is_empty() {
+            "App Group".to_string()
+        } else {
+            sanitized
+        };
 
         let mut params = HashMap::new();
         params.insert("identifier".into(), Value::String(group_id.to_string()));
-        params.insert(
-            "name".into(),
-            Value::String(if sanitized.is_empty() {
-                "App Group".to_string()
-            } else {
-                sanitized
-            }),
-        );
+        params.insert("name".into(), Value::String(sanitized));
 
         let resp = self
             .request_plist(auth, "ios/addAppGroup.action", params, true)
@@ -99,17 +93,11 @@ impl DeveloperClient {
             .get("appGroup")
             .and_then(|v| v.as_dictionary())
             .ok_or_else(|| {
-                let err = DevError {
-                    result_code: resp
-                        .get("resultCode")
-                        .and_then(|v| v.as_signed_integer()),
-                    user_string: resp
-                        .get("userString")
-                        .and_then(|v| v.as_string())
-                        .unwrap_or("?")
-                        .to_string(),
-                };
-                anyhow!("addAppGroup thất bại: {:?}", err)
+                anyhow!(
+                    "addAppGroup thất bại: resultCode={:?} userString={:?}",
+                    resp.get("resultCode").and_then(|v| v.as_signed_integer()),
+                    resp.get("userString").and_then(|v| v.as_string())
+                )
             })?;
 
         Ok(AppGroup {
@@ -132,19 +120,19 @@ impl DeveloperClient {
     }
 
     /// Đảm bảo App Group tồn tại (tạo nếu chưa).
-    pub fn ensure_app_group_full(
+    pub fn ensure_app_group(
         &mut self,
         auth: &mut AnisetteClient,
-        name: &str,
         group_id: &str,
+        name: &str,
     ) -> Result<AppGroup> {
-        let existing = self.list_app_groups_full(auth)?;
+        let existing = self.list_app_groups(auth)?;
         if let Some(g) = existing.iter().find(|g| g.group_id == group_id) {
             println!("[dev] App Group đã có: {}", group_id);
             return Ok(g.clone());
         }
 
         println!("[dev] Tạo App Group: {}", group_id);
-        self.create_app_group(auth, name, group_id)
+        self.create_app_group(auth, group_id, name)
     }
 }
