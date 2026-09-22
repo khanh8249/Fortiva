@@ -1,3 +1,4 @@
+use idevice::RsdService;
 // src/install/afc_rsd.rs
 use anyhow::{anyhow, Context, Result};
 use idevice::afc::opcode::AfcFopenMode;

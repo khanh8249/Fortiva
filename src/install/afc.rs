@@ -1,3 +1,4 @@
+use idevice::IdeviceService;
 // src/install/afc.rs
 use anyhow::{anyhow, Context, Result};
 use idevice::afc::opcode::AfcFopenMode;

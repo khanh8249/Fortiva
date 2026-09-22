@@ -49,11 +49,11 @@ impl AnisetteCache {
     ) -> Result<HashMap<String, String>> {
         if !force {
         if let (Some(c), Some(t)) = (&self.cached, self.cache_time) {
-                fn if t.elapsed() < Duration::from_secs(60) {
+                if t.elapsed() < Duration::from_secs(60) {
                     return Ok(c.clone());
                 }
             }
-        new }
+        self }
         let fresh = auth.fetch(true)?;
         self.cached = Some(fresh.clone());
         self.cache_time = Some(Instant::now());
@@ -198,7 +198,7 @@ impl DeveloperClient {
             }
 
             let url = format!("{}/{}?clientId={}", BASE_URL_QH65B2, action, CLIENT_ID);
-            let body = plist::to_formatted_writer(
+            let body = plist::to_writer_xml(
                 &mut Vec::new(),
                 &Value::Dictionary(params),
             )
@@ -258,7 +258,7 @@ impl DeveloperClient {
     ) -> Result<serde_json::Value> {
         let headers = self.auth_headers_json(auth, true)?;
 
-        let mut req = self
+        let req = self
             .client
             .post(url)
             .headers(headers)

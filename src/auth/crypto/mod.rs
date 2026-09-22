@@ -1,5 +1,5 @@
 // src/auth/crypto/mod.rs
-mod aes;
+pub mod aes;
 mod cookie;
 mod hmac;
 

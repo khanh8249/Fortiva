@@ -82,7 +82,7 @@ impl GsaClient {
             body_dict.insert("Request".into(), Value::Dictionary(request_dict));
 
             // Encode plist XML
-            let body_bytes = match plist::to_formatted_writer(
+            let body_bytes = match plist::to_writer_xml(
                 &mut Vec::new(),
                 &Value::Dictionary(body_dict),
             ) {

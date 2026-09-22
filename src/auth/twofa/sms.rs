@@ -15,7 +15,7 @@ impl SmsHandler {
         &self,
         client: &Client,
         anisette: &mut AnisetteClient,
-header        dsid: &str,
+        dsid: &str,
         idms_token: &str,
         user_id: &str,
         device_id: &str,

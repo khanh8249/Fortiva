@@ -1,6 +1,6 @@
 // src/tools/sidestore_pairing.rs
 use anyhow::{anyhow, Context, Result};
-use idevice::lockdown::LockdowndClient;
+use idevice::services::lockdown::LockdownClient;
 use idevice::services::afc::opcode::AfcFopenMode;
 use idevice::services::afc::AfcClient;
 use idevice::services::house_arrest::HouseArrestClient;
@@ -30,7 +30,7 @@ where
     println!("[sidestore] Device UDID: {}", udid);
 
     //  {
-2. Pair với iPhone
+// 2. Pair với iPhone
     pair_device(&device, &notify).await?;
 
     // 3. Đọc pairing record
@@ -133,7 +133,7 @@ where
 {
     println!("\n[sidestore] Pairing với iPhone...");
 
-    let mut lockdown = LockdowndClient::connect(device)
+    let mut lockdown = LockdownClient::connect(device)
         .await
         .context("Kết nối Lockdownd thất bại")?;
 
@@ -174,7 +174,7 @@ fn build_pairing_xml(udid: &str) -> Result<Vec<u8>> {
     // SideStore cần UDID trong record
     record.insert("UDID".into(), Value::String(udid.to_string()));
 
-    let xml = plist::to_formatted_writer(&mut Vec::new(), &Value::Dictionary(record))
+    let xml = plist::to_writer_xml(&mut Vec::new(), &Value::Dictionary(record))
         .context("Serialize pairing record thất bại")?;
 
     Ok(xml)
@@ -250,7 +250,7 @@ fn pairing_dirs() -> Vec<PathBuf> {
 async fn find_sidestore_bundles(
     device: &idevice::usbmuxd::UsbmuxdDevice,
 ) -> Result<Vec<String>> {
-    let lockdown = LockdowndClient::connect(device)
+    let lockdown = LockdownClient::connect(device)
         .await
         .context("Kết nối Lockdownd thất bại")?;
 
@@ -260,7 +260,6 @@ async fn find_sidestore_bundles(
         .context("Start InstallationProxy service thất bại")?;
 
     let mut instproxy = InstallationProxyClient::new(instproxy_service)
-        .await
         .context("Tạo InstallationProxy client thất bại")?;
 
     let mut options = Dictionary::new();
@@ -345,7 +344,7 @@ async fn write_to_bundle(
     pairing_xml: &[u8],
 ) -> Result<()> {
     // 1. Mở House Arrest
-    let lockdown = LockdowndClient::connect(device)
+    let lockdown = LockdownClient::connect(device)
         .await
         .context("Kết nối Lockdownd thất bại")?;
 
@@ -355,7 +354,6 @@ async fn write_to_bundle(
         .context("Start House Arrest service thất bại")?;
 
     let mut ha = HouseArrestClient::new(ha_service)
-        .await
         .context("Tạo House Arrest client thất bại")?;
 
     // 2. Vend container (toàn bộ Documents + Library)
@@ -365,7 +363,6 @@ async fn write_to_bundle(
 
     // 3. Chuyển sang AFC
     let mut afc = AfcClient::new(ha.into_inner())
-        .await
         .context("Tạo AFC client thất bại")?;
 
     // 4. Ghi file

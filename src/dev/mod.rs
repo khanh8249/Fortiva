@@ -1,5 +1,4 @@
 // src/dev/mod.rs
-mod app_groups;
 mod app_ids;
 mod certificate;
 mod client;
@@ -8,7 +7,6 @@ mod json_api;
 mod plist_api;
 mod teams;
 
-pub use app_groups::AppGroup;
 pub use app_ids::{AppId, Profile};
 pub use certificate::{decode_cert_content, CertificateBundle};
 pub use client::{

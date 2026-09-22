@@ -67,7 +67,8 @@ impl TrustedDeviceHandler {
             .timeout(Duration::from_secs(15))
             .send()?;
 
-        if resp.status().is_success() {
+        let status = resp.status();
+        if status.is_success() {
             let bytes = resp.bytes()?;
             match plist::from_bytes::<Value>(&bytes) {
                 Ok(val) => {
@@ -93,7 +94,7 @@ impl TrustedDeviceHandler {
             }
         }
 
-        eprintln!("[2fa] Fail: {}", resp.status());
+        eprintln!("[2fa] Fail: {}", status);
         Ok(false)
     }
 

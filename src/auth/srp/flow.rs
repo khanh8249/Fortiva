@@ -53,7 +53,7 @@ impl SrpFlow {
             .get("sp")
             .and_then(|v| v_token.as_string())
             .ok_or_else(|| anyhow!("Response thiếu 'sp'"))?
-            = .to_string();
+            = "".to_string();
 
         let salt_b64 = init_resp
             .get("s")

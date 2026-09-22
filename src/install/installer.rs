@@ -1,3 +1,5 @@
+use idevice::RsdService;
+use idevice::IdeviceService;
 // src/install/installer.rs
 use anyhow::{Context, Result};
 use idevice::installation_proxy::InstallationProxyClient;
