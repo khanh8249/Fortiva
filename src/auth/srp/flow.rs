@@ -1,5 +1,6 @@
 // src/auth/srp/flow.rs
 use anyhow::{anyhow, Context, Result};
+use base64::{engine::general_purpose, Engine as _};
 
 use hmac::{Hmac, Mac};
 use plist::{Dictionary, Value};

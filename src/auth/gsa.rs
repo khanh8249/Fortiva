@@ -39,6 +39,15 @@ impl GsaClient {
         parameters: HashMap<String, Value>,
         max_retries: u32,
     ) -> Result<Dictionary> {
+        self.request_with_headers(parameters, max_retries, None)
+    }
+
+    pub fn request_with_headers(
+        &mut self,
+        parameters: HashMap<String, Value>,
+        max_retries: u32,
+        extra_headers: Option<HeaderMap>,
+    ) -> Result<Dictionary> {
         let op = parameters
             .get("o")
             .and_then(|v| v.as_string())
@@ -83,7 +92,12 @@ impl GsaClient {
 
             eprintln!("[gsa] {} (lan {}/{})", op, attempt + 1, effective_retries);
 
-            let headers = self.build_headers()?;
+            let mut headers = self.build_headers()?;
+            if let Some(extra) = &extra_headers {
+                for (k, v) in extra.iter() {
+                    headers.insert(k.clone(), v.clone());
+                }
+            }
 
             let resp = self
                 .client
@@ -180,6 +194,14 @@ impl GsaClient {
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/x-xml-plist"));
         headers.insert(ACCEPT, HeaderValue::from_static("text/x-xml-plist"));
         headers.insert(USER_AGENT, HeaderValue::from_static(UA));
+        headers.insert(
+            "X-Xcode-Version",
+            HeaderValue::from_static("27.0 (27A5218g)"),
+        );
+        headers.insert(
+            "X-Apple-App-Info",
+            HeaderValue::from_static("com.apple.gs.xcode.auth"),
+        );
         headers.insert("Accept-Language", HeaderValue::from_static("en-us"));
         headers.insert(
             "X-Mme-Client-Info",

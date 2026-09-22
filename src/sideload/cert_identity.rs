@@ -73,8 +73,8 @@ fn extract_team_id_from_pem(pem: &str) -> Option<String> {
     let subject = cert.subject_name();
     let entries = subject.entries();
     for entry in entries {
-        let data = entry.data().as_utf8().ok()?;
-        let s = data.to_string();
+        let data = entry.data().as_slice();
+        let s = String::from_utf8_lossy(data).to_string();
         if s.len() == 10 && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
             return Some(s);
         }
@@ -89,5 +89,5 @@ fn extract_cn_from_pem(pem: &str) -> Option<String> {
     let subject = cert.subject_name();
     let entries = subject.entries_by_nid(Nid::COMMONNAME);
     let entry = entries.into_iter().next()?;
-    entry.data().as_utf8().ok().map(|s| s.to_string())
+    Some(String::from_utf8_lossy(entry.data().as_slice()).to_string())
 }
