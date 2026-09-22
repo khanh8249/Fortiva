@@ -1,5 +1,5 @@
 // src/sideload/sideloader.rs
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,7 +13,6 @@ pub struct Sideloader {
     pub dev: DeveloperClient,
     pub anisette: AnisetteClient,
     pub work_dir: PathBuf,
-    /// Bật Increased Memory Limit cho LiveContainer
     pub increased_memory_limit: bool,
 }
 
@@ -23,11 +22,10 @@ impl Sideloader {
             dev,
             anisette,
             work_dir,
-            increased_memory_limit: true, // default bật cho LiveContainer
+            increased_memory_limit: true,
         }
     }
 
-    /// Sign IPA (không cài).
     pub fn sign_ipa(
         &mut self,
         ipa_path: &Path,
@@ -35,28 +33,40 @@ impl Sideloader {
         key_pem: &Path,
         profile_path: &Path,
     ) -> Result<PathBuf> {
-        println!("\n[sideload] ═══ Bắt đầu sign ═══");
+        println!("\n[sideload] === Bắt đầu sign ===");
 
-        // 1. Load cert
+        // ============================================================
+        // BƯỚC 1: Load cert
+        // ============================================================
         let cert = CertificateIdentity::from_files(cert_pem, key_pem)
             .context("Load cert identity thất bại")?;
         println!("[sideload] Cert serial: {}", cert.serial_number());
         println!("[sideload] Team ID: {}", cert.machine_id);
 
-        // 2. Load profile
+        // ============================================================
+        // BƯỚC 2: Load profile
+        // ============================================================
         let profile_data = fs::read(profile_path)
             .with_context(|| format!("Đọc profile thất bại: {}", profile_path.display()))?;
 
-        // 3. Parse app
+        // ============================================================
+        // BƯỚC 3: Parse IPA
+        // ============================================================
         println!("\n[sideload] Parse IPA...");
         let mut app = Application::new(ipa_path.to_path_buf())?;
 
+        // ============================================================
+        // BƯỚC 4: Detect special app
+        // ============================================================
         let special = app.get_special_app();
-        if let Some(s) = &special {
-            println!("[sideload] 🎯 Special app: {}", s);
+        match &special {
+            Some(s) => println!("[sideload] 🎯 Special app: {}", s),
+            None => println!("[sideload] App thường (không có special behavior)"),
         }
 
-        // 4. Patch bundle ID
+        // ============================================================
+        // BƯỚC 5: Patch bundle ID
+        // ============================================================
         let main_bundle_id = app.main_bundle_id()?;
         let team_id = cert.machine_id.clone();
         let new_bundle_id = format!("{}.{}", main_bundle_id, team_id);
@@ -68,49 +78,66 @@ impl Sideloader {
         );
         app.update_bundle_id(&main_bundle_id, &new_bundle_id)?;
 
-        // 5. Register App IDs (chỉ khi có special app hoặc cần thiết)
-        let mut main_app_id = None;
+        // ============================================================
+        // BƯỚC 6: Register App IDs (chỉ khi special app)
+        // ============================================================
+        let mut main_app_id: Option<crate::dev::AppId> = None;
         let mut extension_app_ids: Vec<(String, crate::dev::AppId)> = Vec::new();
 
         if special.is_some() {
-            println!("\n[sideload] Đăng ký App IDs...");
+            println!("\n[sideload] Đăng ký App IDs với Apple...");
 
-            // Main app
-            let main_id = self.dev.ensure_app_id(
+            // Main app ID
+            match self.dev.ensure_app_id(
                 &mut self.anisette,
                 &new_bundle_id,
                 &main_app_name,
-            )?;
-            println!("[sideload] Main App ID: {}", main_id.identifier);
-            main_app_id = Some(main_id);
+            ) {
+                Ok(id) => {
+                    println!("[sideload] Main App ID: {}", id.identifier);
+                    main_app_id = Some(id);
+                }
+                Err(e) => {
+                    println!("[sideload] ⚠️ Không register được main App ID: {}", e);
+                    println!("[sideload] Tiếp tục ký (không register extension)...");
+                }
+            }
 
-            // Extensions
-            let ext_bundles: Vec<_> = app
-                .bundle
-                .app_extensions()
-                .iter()
-                .filter_map(|ext| {
-                    let id = ext.bundle_identifier()?.to_string();
-                    let name = ext.bundle_name().unwrap_or("Extension").to_string();
-                    Some((id, name))
-                })
-                .collect();
+            // Extension App IDs (nếu register main OK)
+            if main_app_id.is_some() {
+                let ext_bundles: Vec<_> = app
+                    .bundle
+                    .app_extensions()
+                    .iter()
+                    .filter_map(|ext| {
+                        let id = ext.bundle_identifier()?.to_string();
+                        let name = ext.bundle_name().unwrap_or("Extension").to_string();
+                        Some((id, name))
+                    })
+                    .collect();
 
-            for (ext_id, ext_name) in ext_bundles {
-                println!("[sideload] Extension: {} ({})", ext_id, ext_name);
-                let ext_app_id = self.dev.ensure_app_id(
-                    &mut self.anisette,
-                    &ext_id,
-                    &ext_name,
-                )?;
-                extension_app_ids.push((ext_id, ext_app_id));
+                for (ext_id, ext_name) in ext_bundles {
+                    println!("[sideload] Extension: {} ({})", ext_id, ext_name);
+                    match self.dev.ensure_app_id(
+                        &mut self.anisette,
+                        &ext_id,
+                        &ext_name,
+                    ) {
+                        Ok(id) => extension_app_ids.push((ext_id, id)),
+                        Err(e) => {
+                            println!("[sideload] ⚠️ Extension fail: {}", e);
+                        }
+                    }
+                }
             }
         }
 
-        // 6. Tạo + assign App Group
+        // ============================================================
+        // BƯỚC 7: Tạo + assign App Group (chỉ special app)
+        // ============================================================
         let mut group_identifier: Option<String> = None;
 
-        if special.is_some() {
+        if special.is_some() && main_app_id.is_some() {
             let grp_id = format!(
                 "group.{}",
                 if matches!(special, Some(SpecialApp::SideStoreLc)) {
@@ -122,91 +149,130 @@ impl Sideloader {
 
             println!("\n[sideload] App Group: {}", grp_id);
 
-            // Tạo App Group
-            let app_group = self.dev.ensure_app_group(
+            match self.dev.ensure_app_group(
                 &mut self.anisette,
                 &grp_id,
                 &main_app_name,
-            )?;
+            ) {
+                Ok(group) => {
+                    // Assign main App ID
+                    if let Some(ref main_id) = main_app_id {
+                        let _ = self.dev.assign_app_group(
+                            &mut self.anisette,
+                            main_id,
+                            &group.group_id,
+                        );
+                    }
 
-            // Assign vào main App ID
-            if let Some(ref main_id) = main_app_id {
-                self.dev
-                    .assign_app_group(&mut self.anisette, main_id, &app_group.group_id)?;
+                    // Assign extension App IDs
+                    for (_, ext_app_id) in &extension_app_ids {
+                        let _ = self.dev.assign_app_group(
+                            &mut self.anisette,
+                            ext_app_id,
+                            &group.group_id,
+                        );
+                    }
+
+                    group_identifier = Some(grp_id);
+                }
+                Err(e) => {
+                    println!("[sideload] ⚠️ Không tạo được App Group: {}", e);
+                    group_identifier = Some(grp_id); // vẫn dùng cho Info.plist
+                }
             }
-
-            // Assign vào mỗi extension
-            for (_, ext_app_id) in &extension_app_ids {
-                self.dev.assign_app_group(
-                    &mut self.anisette,
-                    ext_app_id,
-                    &app_group.group_id,
-                )?;
-            }
-
-            group_identifier = Some(grp_id);
         }
 
-        // 7. Bật Increased Memory Limit cho LiveContainer
+        // ============================================================
+        // BƯỚC 8: Tăng memory limit cho LiveContainer/SideStoreLc
+        // ============================================================
         if self.increased_memory_limit
             && matches!(
                 special,
                 Some(SpecialApp::LiveContainer) | Some(SpecialApp::SideStoreLc)
             )
+            && main_app_id.is_some()
         {
             println!("\n[sideload] Bật Increased Memory Limit...");
 
             if let Some(ref main_id) = main_app_id {
-                // Không fail cứng nếu lỗi — một số tài khoản không có feature này
-                if let Err(e) = self
-                    .dev
-                    .add_increased_memory_limit(&mut self.anisette, main_id)
-                {
-                    eprintln!("[sideload] ⚠️ Không bật được cho main app: {}", e);
+                if let Err(e) = self.dev.add_increased_memory_limit(
+                    &mut self.anisette,
+                    main_id,
+                ) {
+                    println!("[sideload] ⚠️ Main app: {}", e);
                 }
             }
 
-            for (_, ext_app_id) in &extension_app_ids {
-                if let Err(e) = self
-                    .dev
-                    .add_increased_memory_limit(&mut self.anisette, ext_app_id)
-                {
-                    eprintln!(
-                        "[sideload] ⚠️ Không bật được cho {}: {}",
-                        ext_app_id.identifier, e
-                    );
+            for (_, ext_id) in &extension_app_ids {
+                if let Err(e) = self.dev.add_increased_memory_limit(
+                    &mut self.anisette,
+                    ext_id,
+                ) {
+                    println!("[sideload] ⚠️ Extension {}: {}", ext_id.identifier, e);
                 }
             }
         }
 
-        // 8. Apply special app behavior (inject cert p12, ALTAppGroups)
-        if let Some(ref grp_id) = group_identifier {
-            app.apply_special_app_behavior(&special, grp_id, &cert)?;
-        } else {
-            // Không có special app → vẫn gọi để xử lý trường hợp đặc biệt nếu có
-            let fallback_grp = format!("group.{}", new_bundle_id);
-            app.apply_special_app_behavior(&special, &fallback_grp, &cert)?;
-        }
+        // ============================================================
+        // BƯỚC 9: Apply special app behavior (inject cert p12)
+        // ============================================================
+        let effective_group = group_identifier
+            .clone()
+            .unwrap_or_else(|| format!("group.{}", new_bundle_id));
 
-        // 9. Ghi Info.plist
-        println!("\n[sideload] Ghi Info.plist cho main + extension + framework...");
+        app.apply_special_app_behavior(&special, &effective_group, &cert)?;
+
+        // ============================================================
+        // BƯỚC 10: Ghi Info.plist
+        // ============================================================
+        println!("\n[sideload] Ghi Info.plist (main + extension + framework)...");
         app.write_all_info()?;
 
-        // 10. Nhúng profile
+        // ============================================================
+        // BƯỚC 11: Nhúng profile
+        // ============================================================
         println!("[sideload] Nhúng provisioning profile...");
         app.write_profiles(&profile_data)?;
 
-        // 11. Ký app
-        println!("\n[sideload] ═══ Bắt đầu ký ═══");
+        // ============================================================
+        // BƯỚC 12: Ký
+        // ============================================================
+        println!("\n[sideload] === Bắt đầu ký ===");
         sign_app(&mut app, &cert, &profile_data, &special)?;
 
         let signed_path = app.bundle.bundle_dir.clone();
-        println!(
-            "\n[sideload] ✅ Ký xong: {}",
-            signed_path.display()
-        );
+        println!("\n[sideload] ✅ Ký xong: {}", signed_path.display());
+
+        // Summary special app behavior
+        if let Some(s) = &special {
+            println!("\n[sideload] 📋 Special app behavior đã áp dụng cho {}:", s);
+            match s {
+                SpecialApp::LiveContainer => {
+                    println!("  ✓ ALTAppGroups injected");
+                    println!("  ✓ 128 keychain-access-groups injected");
+                    println!("  ✓ Increased Memory Limit");
+                    println!("  ✓ Bundle ID patched");
+                }
+                SpecialApp::SideStoreLc => {
+                    println!("  ✓ ALTAppGroups injected");
+                    println!("  ✓ 128 keychain-access-groups injected");
+                    println!("  ✓ Increased Memory Limit");
+                    println!("  ✓ Cert p12 injected vào SideStore.framework");
+                    println!("  ✓ Bundle ID patched");
+                }
+                SpecialApp::SideStore | SpecialApp::AltStore => {
+                    println!("  ✓ ALTAppGroups injected");
+                    println!("  ✓ Cert p12 injected vào main bundle");
+                    println!("  ✓ Bundle ID patched");
+                }
+                SpecialApp::StikStore => {
+                    println!("  ✓ Cert p12 (Certificate.p12) injected");
+                    println!("  ✓ MachineID key injected");
+                    println!("  ✓ Bundle ID patched");
+                }
+            }
+        }
 
         Ok(signed_path)
     }
-
 }

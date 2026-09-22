@@ -56,7 +56,7 @@ fn shellexpand(s: &str) -> String {
 
 fn prompt_choice() -> String {
     menu::print_menu();
-    print!("  {} Chọn (1-9 hoặc 0): ", theme::bold_primary("?"));
+    print!("  {} Chọn (1-9): ", theme::bold_primary("?"));
     io::stdout().flush().ok();
     let mut buf = Vec::new();
     io::stdin().read_until(b'\n', &mut buf).ok();
@@ -501,7 +501,7 @@ fn cmd_setup_sidestore_pairing() -> Result<()> {
     theme::clear_screen();
     log::header("SETUP SIDESTORE PAIRING");
 
-    println!("  {} Tool ghi pairing file vào SideStore container", theme::muted("→"));
+    println!("  {} Tool này ghi pairing file vào SideStore container", theme::muted("→"));
     println!("  {} để SideStore sideload không cần Mac.", theme::muted("→"));
     println!();
     println!("  {} Yêu cầu:", theme::muted("→"));
@@ -520,12 +520,7 @@ fn cmd_setup_sidestore_pairing() -> Result<()> {
         Ok(prompt_yn("Tiếp tục? (y/n):"))
     };
 
-    let rt = tokio::runtime::Runtime::new()
-        .context("Không tạo được tokio runtime")?;
-
-    rt.block_on(async {
-        fortiva::tools::setup_sidestore_pairing(notify).await
-    })?;
+    fortiva::tools::setup_sidestore_pairing(notify);
 
     theme::success_box(
         "SETUP SIDESTORE THÀNH CÔNG",
@@ -535,40 +530,78 @@ fn cmd_setup_sidestore_pairing() -> Result<()> {
     Ok(())
 }
 
+
 // ============================================================
-//  FEATURE 8: DEVICE INFO
+//  FEATURE 6: SETUP SIDESTORE PAIRING
 // ============================================================
 
-fn cmd_device_info() -> Result<()> {
+fn cmd_setup_sidestore_pairing() -> Result<()> {
     theme::clear_screen();
-    log::header("THÔNG TIN THIẾT BỊ");
+    log::header("SETUP SIDESTORE PAIRING");
 
-    let devices = fortiva::usb::list_usb_devices()?;
+    println!("  {} Tool này ghi pairing file vào SideStore container", theme::muted("→"));
+    println!("  {} để SideStore sideload không cần Mac.", theme::muted("→"));
+    println!();
+    println!("  {} Yêu cầu:", theme::muted("→"));
+    println!("    {} iPhone đã cài SideStore", theme::muted("•"));
+    println!("    {} Đã pair 1 lần (idevicepair pair)", theme::muted("•"));
+    println!("    {} usbmuxd đang chạy", theme::muted("•"));
+    println!();
 
-    if devices.is_empty() {
-        log::warn("Không tìm thấy iPhone nào.");
+    if !prompt_yn("Tiếp tục? (y/n):") {
         return Ok(());
     }
 
-    println!("  {} {} thiết bị kết nối:\n", theme::primary("→"), devices.len());
-
-    for (i, d) in devices.iter().enumerate() {
-        match fortiva::usb::device_info(&d.udid) {
-            Ok(info) => {
-                let lines = vec![
-                    format!("Tên:   {}", info.name),
-                    format!("UDID:  {}", info.udid),
-                    format!("Model: {}", info.model),
-                    format!("iOS:   {}", info.version),
-                ];
-                theme::box_section(&format!("Device {}", i + 1), &lines);
-            }
-            Err(e) => {
-                log::error(&format!("Không đọc được info: {}", e));
-            }
-        }
+    let notify = |msg: &str| -> Result<bool> {
         println!();
+        log::warn(msg);
+        Ok(prompt_yn("Tiếp tục? (y/n):"))
+    };
+
+    fortiva::tools::setup_sidestore_pairing(notify);
+
+    theme::success_box(
+        "SETUP SIDESTORE THÀNH CÔNG",
+        &["Mở SideStore → Settings để kiểm tra".to_string()],
+    );
+
+    Ok(())
+}
+
+
+// ============================================================
+//  FEATURE 6: SETUP SIDESTORE PAIRING
+// ============================================================
+
+fn cmd_setup_sidestore_pairing() -> Result<()> {
+    theme::clear_screen();
+    log::header("SETUP SIDESTORE PAIRING");
+
+    println!("  {} Tool này ghi pairing file vào SideStore container", theme::muted("→"));
+    println!("  {} để SideStore sideload không cần Mac.", theme::muted("→"));
+    println!();
+    println!("  {} Yêu cầu:", theme::muted("→"));
+    println!("    {} iPhone đã cài SideStore", theme::muted("•"));
+    println!("    {} Đã pair 1 lần (idevicepair pair)", theme::muted("•"));
+    println!("    {} usbmuxd đang chạy", theme::muted("•"));
+    println!();
+
+    if !prompt_yn("Tiếp tục? (y/n):") {
+        return Ok(());
     }
+
+    let notify = |msg: &str| -> Result<bool> {
+        println!();
+        log::warn(msg);
+        Ok(prompt_yn("Tiếp tục? (y/n):"))
+    };
+
+    fortiva::tools::setup_sidestore_pairing(notify);
+
+    theme::success_box(
+        "SETUP SIDESTORE THÀNH CÔNG",
+        &["Mở SideStore → Settings để kiểm tra".to_string()],
+    );
 
     Ok(())
 }
@@ -596,8 +629,7 @@ fn main() {
             "6" => cmd_setup_sidestore_pairing(),
             "7" => cmd_device_manager(),
             "8" => cmd_revoke_certs(),
-            "9" => cmd_device_info(),
-            "0" | "" => {
+            "9" => {
                 theme::clear_screen();
                 println!();
                 log::info("Tạm biệt! 👋");
