@@ -1,18 +1,19 @@
+// src/install/installer.rs
 use anyhow::Result;
 use idevice::services::installation_proxy::InstallationProxyClient;
-use plist::Value;
-use std::collections::BTreeMap;
+use plist::{Dictionary, Value};
 
 pub async fn install_app(
     instproxy: &mut InstallationProxyClient,
     remote_dir: &str,
-    options: BTreeMap<String, Value>,
+    options: Dictionary,
 ) -> Result<()> {
     instproxy
         .install_with_callback(
             remote_dir,
-            Some(Value::Dictionary(options.clone())),
-            |_| std::future::ready(()),
+            Some(Value::Dictionary(options)),
+            |_| async {},
+            (),
         )
         .await?;
 
@@ -22,13 +23,14 @@ pub async fn install_app(
 pub async fn upgrade_app(
     instproxy: &mut InstallationProxyClient,
     remote_dir: &str,
-    options: BTreeMap<String, Value>,
+    options: Dictionary,
 ) -> Result<()> {
     instproxy
         .install_with_callback(
             remote_dir,
             Some(Value::Dictionary(options)),
-            |_| std::future::ready(()),
+            |_| async {},
+            (),
         )
         .await?;
 

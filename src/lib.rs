@@ -10,4 +10,3 @@ pub use auth::AuthResult;
 pub use auth::Fortiva;
 pub use dev::DeveloperClient;
 pub use sideload::Sideloader;
-pub use tools::{list_pairing_records, setup_sidestore_pairing};

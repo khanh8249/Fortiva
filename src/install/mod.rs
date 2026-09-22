@@ -1,8 +1,8 @@
 // src/install/mod.rs
-mod afc;
-mod afc_rsd;
-mod device;
-mod installer;
+pub mod afc;
+pub mod afc_rsd;
+pub mod device;
+pub mod installer;
 
-pub use device::{detect_device, DeviceInfo};
-pub use installer::{install_app, install_app_rsd};
+pub use device::detect_device;
+pub use installer::install_app;
