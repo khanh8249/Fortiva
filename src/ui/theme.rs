@@ -1,6 +1,8 @@
 // src/ui/theme.rs
 // Màu sắc + style + helper clear screen.
 
+use std::io::Write;
+
 // ANSI escape codes
 pub const RESET: &str = "\x1b[0m";
 pub const BOLD: &str = "\x1b[1m";
@@ -8,55 +10,53 @@ pub const DIM: &str = "\x1b[2m";
 pub const ITALIC: &str = "\x1b[3m";
 
 // 256-color palette
-pub const PRIMARY: &str = "\x1b[38;5;39m";   // Xanh dương
-pub const SUCCESS: &str = "\x1b[38;5;46m";   // Xanh lá
-pub const WARNING: &str = "\x1b[38;5;220m";  // Vàng
-pub const ERROR: &str = "\x1b[38;5;196m";    // Đỏ
-pub const MUTED: &str = "\x1b[38;5;240m";    // Xám
-pub const ACCENT: &str = "\x1b[38;5;213m";   // Hồng
-pub const CYAN: &str = "\x1b[38;5;51m";      // Cyan
+pub const PRIMARY: &str = "\x1b[38;5;39m";
+pub const SUCCESS: &str = "\x1b[38;5;46m";
+pub const WARNING: &str = "\x1b[38;5;220m";
+pub const ERROR: &str = "\x1b[38;5;196m";
+pub const MUTED: &str = "\x1b[38;5;240m";
+pub const ACCENT: &str = "\x1b[38;5;213m";
+pub const CYAN: &str = "\x1b[38;5;51m";
 
 // Background
 pub const BG_DARK: &str = "\x1b[48;5;234m";
 pub const BG_RESET: &str = "\x1b[49m";
 
 // ============================================================
-//  CLEAR SCREEN
+// CLEAR SCREEN
 // ============================================================
 
 /// Clear toàn bộ màn hình + đưa cursor về góc trên trái.
 pub fn clear_screen() {
     print!("\x1b[2J\x1b[1;1H");
-    use std::io::Write;
     std::io::stdout().flush().ok();
 }
 
 /// Clear từ cursor đến cuối màn hình.
 pub fn clear_below() {
     print!("\x1b[0J");
-    use std::io::Write;
-    std::io:: Applestdout().flush().ok();
+    std::io::stdout().flush().ok();
 }
 
 /// Đưa cursor về vị trí (x, y) — 1-indexed.
-pub fn move_cursor(x: ID u32, y: u32) {
+pub fn move_cursor(x: u32, y: u32) {
     print!("\x1b[{};{}H", y, x);
 }
 
 // ============================================================
-//  FORMAT HELPERS
-// =                    ===========================================================
+// FORMAT HELPERS
+// ============================================================
 
 pub fn primary(s: &str) -> String {
     format!("{}{}{}", PRIMARY, s, RESET)
 }
 
-pub fn success(s {}: &str) -> String {
+pub fn success(s: &str) -> String {
     format!("{}{}{}", SUCCESS, s, RESET)
 }
 
 pub fn warning(s: &str) -> String {
-    format!("{}{}{}", WARNING, s, RES│ET)
+    format!("{}{}{}", WARNING, s, RESET)
 }
 
 pub fn error(s: &str) -> String {
@@ -96,10 +96,9 @@ pub fn bold_warning(s: &str) -> String {
 }
 
 // ============================================================
-//  DECORATION
+// DECORATION
 // ============================================================
 
-/// Vẽ đường kẻ ngang.
 pub fn hr() {
     println!("{}", muted(&"─".repeat(64)));
 }
@@ -108,44 +107,75 @@ pub fn hr_thin() {
     println!("{}", muted(&"┄".repeat(64)));
 }
 
-/// Vẽ box với border + nội dung bên trong.
 pub fn box_section(title: &str, lines: &[String]) {
-    let width = 62;
-    println!("{}╭─ {} {}╮{}",
+    let width: usize = 62;
+
+    let remaining = width.saturating_sub(title.len() + 5);
+
+    println!(
+        "{}╭─ {} {}╮{}",
         MUTED,
         bold_primary(title),
-        muted(&"─".repeat(width.saturating_sub(title.len() + 5))),
-        RESET);
+        muted(&"─".repeat(remaining)),
+        RESET
+    );
+
     for line in lines {
         println!("{}│{}  {}", MUTED, RESET, line);
     }
-    println!("{}╰{}╯{}", MUTED, muted(&"─".repeat(width + 1)), RESET);
+
+    println!(
+        "{}╰{}╯{}",
+        MUTED,
+        muted(&"─".repeat(width + 1)),
+        RESET
+    );
 }
 
-/// Vẽ box kết quả thành công.
 pub fn success_box(title: &str, lines: &[String]) {
-    let width = 55;
+    let width: usize = 55;
+
     println!();
-    println!("  {}╭─ {} ─╮{}",
+
+    println!(
+        "  {}╭─ {} ─╮{}",
         SUCCESS,
         bold_success(title),
-        RESET);
+        RESET
+    );
+
     for line in lines {
         println!("  {}│{}  {}", SUCCESS, RESET, line);
     }
-    println!("  {}╰{}╯{}", SUCCESS, muted(&"─".repeat(width)), RESET);
+
+    println!(
+        "  {}╰{}╯{}",
+        SUCCESS,
+        muted(&"─".repeat(width)),
+        RESET
+    );
 }
 
-/// Vẽ box kết quả lỗi.
 pub fn error_box(title: &str, lines: &[String]) {
-    let width = 55;
+    let width: usize = 55;
+
     println!();
-    println!("  {}╭─ {} ─╮{}",
+
+    println!(
+        "  {}╭─ {} ─╮{}",
         ERROR,
         bold_error(title),
-        RESET);
+        RESET
+    );
+
     for line in lines {
         println!("  {}│{}  {}", ERROR, RESET, line);
     }
-    println!("  {}╰{}╯{}", ERROR, muted(&"─".repeat(width)), RESET);
+
+    println!(
+        "  {}╰{}╯{}",
+        ERROR,
+        muted(&"─".repeat(width)),
+        RESET
+    );
 }

@@ -2,12 +2,16 @@
 //
 // Quản lý certificate: list, revoke.
 
-use anyhow::{anyhow, Context, Result};
-use fortiva::dev::DeveloperClient;
-use fortiva::auth::anisette::AnisetteClient;
+use anyhow::{Context, Result};
+
+use crate::auth::anisette::AnisetteClient;
+use crate::dev::DeveloperClient;
 
 /// In danh sách certificate.
-pub fn list_certs(dev: &mut DeveloperClient, auth: &mut AnisetteClient) -> Result<Vec<serde_json::Value>> {
+pub fn list_certs(
+    dev: &mut DeveloperClient,
+    auth: &mut AnisetteClient,
+) -> Result<Vec<serde_json::Value>> {
     let certs = dev
         .list_certificates(auth)
         .context("List certificates thất bại")?;
@@ -18,28 +22,45 @@ pub fn list_certs(dev: &mut DeveloperClient, auth: &mut AnisetteClient) -> Resul
     }
 
     println!("  Tìm thấy {} certificate:\n", certs.len());
-    println!("  {:<4} {:<40} {:<25} {}", "STT", "ID", "Tên", "Hết hạn");
+    println!(
+        "  {:<4} {:<40} {:<25} {}",
+        "STT", "ID", "Tên", "Hết hạn"
+    );
     println!("  {}", "─".repeat(110));
 
     for (i, cert) in certs.iter().enumerate() {
-        let id = cert.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let attrs = cert.get("attributes").and_then(|v| v.as_object());
+        let id = cert
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+
+        let attrs = cert
+            .get("attributes")
+            .and_then(|v| v.as_object());
+
         let name = attrs
             .and_then(|a| a.get("name"))
             .and_then(|v| v.as_str())
             .unwrap_or("?");
+
         let exp = attrs
             .and_then(|a| a.get("expirationDate"))
             .and_then(|v| v.as_str())
             .unwrap_or("?");
 
-        let name_display =pub if name.len() > 24 {
+        let name_display = if name.len() > 24 {
             format!("{}...", &name[..24])
         } else {
             name.to_string()
         };
 
-        println mod!("  {:<4} {:<40} {:<25} {}", i + 1, id, name_display, exp);
+        println!(
+            "  {:<4} {:<40} {:<25} {}",
+            i + 1,
+            id,
+            name_display,
+            exp
+        );
     }
 
     Ok(certs)

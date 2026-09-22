@@ -3,11 +3,15 @@
 // Quản lý thiết bị: list, register, remove devices trên Apple Developer.
 
 use anyhow::{anyhow, Context, Result};
-use fortiva::dev::DeveloperClient;
-use fortiva::auth::anisette::AnisetteClient;
+
+use crate::auth::anisette::AnisetteClient;
+use crate::dev::DeveloperClient;
 
 /// In danh sách thiết bị đã đăng ký.
-pub fn list_devices(dev: &mut DeveloperClient, auth: &mut AnisetteClient) -> Result<()> {
+pub fn list_devices(
+    dev: &mut DeveloperClient,
+    auth: &mut AnisetteClient,
+) -> Result<()> {
     let devices = dev
         .list_devices_full(auth)
         .context("List devices thất bại")?;
@@ -22,7 +26,12 @@ pub fn list_devices(dev: &mut DeveloperClient, auth: &mut AnisetteClient) -> Res
     println!("  {}", "─".repeat(80));
 
     for (i, d) in devices.iter().enumerate() {
-        println!("  {:<4} {:<40} {}", i + 1, d.udid, d.name);
+        println!(
+            "  {:<4} {:<40} {}",
+            i + 1,
+            d.udid,
+            d.name
+        );
     }
 
     Ok(())
@@ -30,7 +39,7 @@ pub fn list_devices(dev: &mut DeveloperClient, auth: &mut AnisetteClient) -> Res
 
 /// Đăng ký thiết bị mới bằng UDID.
 pub fn register_device(
-: &mut DeveloperClient,
+    dev: &mut DeveloperClient,
     auth: &mut AnisetteClient,
     name: &str,
     udid: &str,
@@ -39,7 +48,12 @@ pub fn register_device(
         .ensure_device_registered(auth, name, udid)
         .context("Đăng ký thiết bị thất bại")?;
 
-    println!("  ✅ Đã đăng ký: {} ({})", device.name, device.udid);
+    println!(
+        "  ✅ Đã đăng ký: {} ({})",
+        device.name,
+        device.udid
+    );
+
     Ok(())
 }
 
@@ -48,7 +62,6 @@ pub fn register_usb_device(
     dev: &mut DeveloperClient,
     auth: &mut AnisetteClient,
 ) -> Result<()> {
-    // Lấy UDID từ USB
     let output = std::process::Command::new("idevice_id")
         .arg("-l")
         .output()
@@ -58,13 +71,18 @@ pub fn register_usb_device(
         return Err(anyhow!("idevice_id thất bại"));
     }
 
-    let udid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let udid = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_string();
+
     if udid.is_empty() {
         return Err(anyhow!("Không tìm thấy thiết bị USB"));
     }
 
     println!("  UDID: {}", udid);
 
-    let name = format!("iPhone-{}", &udid[..8.min(udid.len())]);
+    let prefix_len = std::cmp::min(8, udid.len());
+    let name = format!("iPhone-{}", &udid[..prefix_len]);
+
     register_device(dev, auth, &name, &udid)
 }
