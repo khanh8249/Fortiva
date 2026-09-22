@@ -4,7 +4,7 @@ use fortiva::auth::anisette::AnisetteClient;
 use fortiva::auth::gsa::GsaClient;
 use fortiva::auth::twofa::TwoFAHandler;
 use fortiva::ui::{log, menu, progress, spinner, theme};
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
