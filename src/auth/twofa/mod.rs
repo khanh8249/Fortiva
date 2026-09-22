@@ -5,15 +5,13 @@ mod trusted;
 use anyhow::{anyhow, Result};
 use base64::{Engine as _, engine::general_purpose};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
-use std::collections::HashMap;
 
 use crate::auth::anisette::AnisetteClient;
-use crate::constants::{XCODE_UA, DEFAULT_CLIENT_INFO, APP_XCODE_AUTH};
+use crate::constants::{APP_XCODE_AUTH, DEFAULT_CLIENT_INFO, XCODE_UA};
 
-pub use trusted::TrustedDeviceHandler;
 pub use sms::SmsHandler;
+pub use trusted::TrustedDeviceHandler;
 
-/// Orchestrator cho 2FA - tự chọn handler dựa trên auth_type.
 pub struct TwoFAHandler {
     pub client: reqwest::blocking::Client,
     pub client_info: String,
@@ -33,7 +31,6 @@ impl TwoFAHandler {
         }
     }
 
-    /// Xây dựng headers cho 2FA request (dùng chung).
     pub fn build_2fa_headers(
         &mut self,
         anisette: &mut AnisetteClient,
@@ -44,10 +41,8 @@ impl TwoFAHandler {
     ) -> Result<HeaderMap> {
         let mut headers = HeaderMap::new();
 
-        // Identity token = base64(dsid:idms_token)
-        let identity_token = general_purpose::STANDARD.encode(
-            format!("{}:{}", dsid, idms_token).as_bytes(),
-        );
+        let identity_token = general_purpose::STANDARD
+            .encode(format!("{}:{}", dsid, idms_token).as_bytes());
 
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/x-xml-plist"));
         headers.insert(ACCEPT, HeaderValue::from_static("text/x-xml-plist"));
@@ -57,21 +52,14 @@ impl TwoFAHandler {
             "X-Apple-Identity-Token",
             HeaderValue::from_str(&identity_token)?,
         );
-        headers.insert(
-            "X-Apple-App-Info",
-            HeaderValue::from_static(APP_XCODE_AUTH),
-        );
-        headers.insert(
-            "X-Xcode-Version",
-            HeaderValue::from_static("14.2 (14C18)"),
-        );
+        headers.insert("X-Apple-App-Info", HeaderValue::from_static(APP_XCODE_AUTH));
+        headers.insert("X-Xcode-Version", HeaderValue::from_static("14.2 (14C18)"));
         headers.insert(
             "X-Mme-Client-Info",
             HeaderValue::from_str(&self.client_info)?,
         );
         headers.insert("X-Apple-I-DSID", HeaderValue::from_str(dsid)?);
 
-        // Meta headers
         let meta = AnisetteClient::get_meta_headers(user_id, device_id);
         for (k, v) in meta {
             if let (Ok(name), Ok(value)) = (
@@ -82,7 +70,6 @@ impl TwoFAHandler {
             }
         }
 
-        // Anisette headers (MD, MD-M, MD-LU, MD-RINFO, device id)
         let anisette_data = anisette.fetch(false)?;
         for key in [
             "X-Apple-I-MD",
@@ -102,7 +89,6 @@ impl TwoFAHandler {
             }
         }
 
-        // Override MD-LU = base64(dsid)
         headers.insert(
             "X-Apple-I-MD-LU",
             HeaderValue::from_str(&general_purpose::STANDARD.encode(dsid.as_bytes()))?,
@@ -111,9 +97,8 @@ impl TwoFAHandler {
         Ok(headers)
     }
 
-    /// Tự động chọn handler dựa trên auth_type từ GSA response.
     pub fn handle_2fa(
-        &mut self,
+        twofa: &mut TwoFAHandler,
         anisette: &mut AnisetteClient,
         auth_type: &str,
         dsid: &str,
@@ -124,62 +109,34 @@ impl TwoFAHandler {
     ) -> Result<bool> {
         match auth_type {
             "trustedDeviceSecondaryAuth" | "secondaryAuth" => {
-                // Thử trusted device trước, fallback SMS
+                println!("[2fa] Thử trusted device trước...");
                 let trusted = TrustedDeviceHandler;
-                if trusted.handle(
-                    &self.client,
-                    anisette,
-                    dsid,
-                    idms_token,
-                    user_id,
-                    device_id,
-                    input_func,
-                    &self.client_info,
-                )? {
-                    return Ok(true);
+                match trusted.handle(
+                    twofa, anisette, dsid, idms_token, user_id, device_id, input_func,
+                ) {
+                    Ok(true) => return Ok(true),
+                    Ok(false) => println!("[2fa] Trusted device fail, fallback SMS"),
+                    Err(e) => println!("[2fa] Trusted device lỗi: {}, fallback SMS", e),
                 }
 
                 let sms = SmsHandler;
-                sms.handle(
-                    &self.client,
-                    anisette,
-                    dsid,
-                    idms_token,
-                    user_id,
-                    device_id,
-                    input_func,
-                    &self.client_info,
-                )
+                sms.handle(twofa, anisette, dsid, idms_token, user_id, device_id, input_func)
             }
             "smsSecondaryAuth" => {
-                // Thử SMS trước, fallback trusted device
+                println!("[2fa] Thử SMS trước...");
                 let sms = SmsHandler;
-                if sms.handle(
-                    &self.client,
-                    anisette,
-                    dsid,
-                    idms_token,
-                    user_id,
-                    device_id,
-                    input_func,
-                    &self.client_info,
-                )? {
-                    return Ok(true);
+                match sms.handle(
+                    twofa, anisette, dsid, idms_token, user_id, device_id, input_func,
+                ) {
+                    Ok(true) => return Ok(true),
+                    Ok(false) => println!("[2fa] SMS fail, fallback trusted device"),
+                    Err(e) => println!("[2fa] SMS lỗi: {}, fallback trusted device", e),
                 }
 
                 let trusted = TrustedDeviceHandler;
-                trusted.handle(
-                    &self.client,
-                    anisette,
-                    dsid,
-                    idms_token,
-                    user_id,
-                    device_id,
-                    input_func,
-                    &self.client_info,
-                )
+                trusted.handle(twofa, anisette, dsid, idms_token, user_id, device_id, input_func)
             }
-            other => Err(anyhow!("Unknown 2FA type: {}", other)),
+            other => Err(anyhow!("2FA type không hỗ trợ: {}", other)),
         }
     }
 }

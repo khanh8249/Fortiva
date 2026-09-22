@@ -1,12 +1,19 @@
 // src/auth/srp/flow.rs
 use anyhow::{anyhow, Context, Result};
-use base64::{Engine as _, engine::general_purpose};
-use plist::Value;
+use base64::{engine::general_purpose, Engine as _};
+use hmac::{Hmac, Mac};
+use plist::{Dictionary, Value};
+use sha2::Sha256;
 use std::collections::HashMap;
 
 use super::variant::SrpClient;
+use crate::auth::crypto::aes::{decrypt_cbc, decrypt_gcm};
 use crate::auth::gsa::GsaClient;
 use crate::auth::twofa::TwoFAHandler;
+use crate::AuthResult;
+
+const APP_XCODE_AUTH: &str = "com.apple.gs.xcode.auth";
+
 pub struct SrpFlow;
 
 impl SrpFlow {
@@ -14,7 +21,6 @@ impl SrpFlow {
         Self
     }
 
-    /// Chạy toàn bộ SRP authentication flow.
     pub fn authenticate(
         &mut self,
         gsa: &mut GsaClient,
@@ -23,16 +29,18 @@ impl SrpFlow {
         password: &str,
         depth: u32,
     ) -> Result<AuthResult> {
-        if depth >= 1 {
-            println!("[srp] Đã retry sau 2FA, tiếp tục...");
+        if depth >= 2 {
+            return Err(anyhow!("SRP retry qua nhieu lan (depth={})", depth));
         }
 
-        // 1. Tạo SRP client
+        if depth > 0 {
+            println!("[srp] Retry sau 2FA (depth={})...", depth);
+        }
+
         let mut srp = SrpClient::new(apple_id, password);
         let a_pub_bytes = srp.a_pub_bytes();
 
-        // 2. Gửi init
-        let mut params = HashMap::new();
+        let mut params: HashMap<String, Value> = HashMap::new();
         params.insert("A2k".into(), Value::Data(a_pub_bytes));
         params.insert(
             "ps".into(),
@@ -44,45 +52,43 @@ impl SrpFlow {
         params.insert("u".into(), Value::String(apple_id.to_string()));
         params.insert("o".into(), Value::String("init".into()));
 
-        let init_resp = gsa
-            .request(params, 3)
-            .context("GSA init thất bại")?;
+        println!("[srp] Gui init request...");
+        let init_resp = gsa.request(params, 3).context("GSA init that bai")?;
 
-        // 3. Parse challenge
         let protocol = init_resp
             .get("sp")
-            .and_then(|v| v_token.as_string())
-            .ok_or_else(|| anyhow!("Response thiếu 'sp'"))?
-            = "".to_string();
+            .and_then(|v| v.as_string())
+            .ok_or_else(|| anyhow!("Response thieu 'sp'"))?
+            .to_string();
 
         let salt_b64 = init_resp
             .get("s")
-            sp .and_then(|v| v.as_string())
-            .ok_or_else(|| anyhow!("Responsed thiếu 's'"))?;
+            .and_then(|v| v.as_string())
+            .ok_or_else(|| anyhow!("Response thieu 's'"))?;
 
         let b_b64 = init_resp
-            .get("B_data")
+            .get("B")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| anyhow!("Response thiếu 'B'"))?;
+            .ok_or_else(|| anyhow!("Response thieu 'B'"))?;
 
         let c = init_resp
             .get("c")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| anyhow!("Response thiếu 'c'"))?
+            .ok_or_else(|| anyhow!("Response thieu 'c'"))?
             .to_string();
 
         let iterations = init_resp
             .get("i")
-            .and_then(|v| v.as_signed_integer())
-            .ok_or_else(|| anyhow!("Response thiếu 'i'"))? as u32;
+            .and_then(plist_integer)
+            .ok_or_else(|| anyhow!("Response thieu 'i'"))? as u32;
 
         let salt = general_purpose::STANDARD
-            .decode(&salt_b64)
-            .context("Decode salt thất bại")?;
+            .decode(salt_b64)
+            .context("Decode salt that bai")?;
 
         let b_pub = general_purpose::STANDARD
-            .decode(&b_b64)
-            .context("Decode B thất bại")?;
+            .decode(b_b64)
+            .context("Decode B that bai")?;
 
         println!(
             "[srp] Protocol={}, iterations={}, salt_len={}, B_len={}",
@@ -92,29 +98,25 @@ impl SrpFlow {
             b_pub.len()
         );
 
-        // 4. Process challenge
         let m1 = srp
             .process_challenge(&salt, &b_pub, iterations, &protocol)
-            .context("Process challenge thất bại")?;
+            .context("Process SRP challenge that bai")?;
 
-        println!("[srp] M1 computed, {} bytes", m1.len());
+        println!("[srp] M1 computed ({} bytes)", m1.len());
 
-        // 5. Gửi complete
-        let mut params = HashMap::new();
+        let mut params: HashMap<String, Value> = HashMap::new();
         params.insert("c".into(), Value::String(c));
         params.insert("M1".into(), Value::Data(m1));
         params.insert("u".into(), Value::String(apple_id.to_string()));
         params.insert("o".into(), Value::String("complete".into()));
 
-        let complete_resp = gsa
-            .request(params, 3)
-            .context("GSA complete thất bại")?;
+        println!("[srp] Gui complete request...");
+        let complete_resp = gsa.request(params, 3).context("GSA complete that bai")?;
 
-        // 6. Kiểm tra status
         let status = complete_resp
             .get("Status")
             .and_then(|v| v.as_dictionary())
-            .ok_or_else(|| anyhow!("Response thiếu 'Status'"))?
+            .ok_or_else(|| anyhow!("Response thieu 'Status'"))?
             .clone();
 
         let auth_type = status
@@ -122,72 +124,54 @@ impl SrpFlow {
             .and_then(|v| v.as_string())
             .map(|s| s.to_string());
 
-        // 7. Verify M2
         if let Some(m2) = complete_resp.get("M2").and_then(|v| v.as_data()) {
             match srp.verify_server_proof(m2) {
-                Ok(true) => println!("[srp] ✅ M2 verified"),
-                Ok(false) => println!("[srp] ⚠️ M2 mismatch"),
-                Err(e) => println!("[srp] ⚠️ Không verify được M2: {}", e),
+                Ok(true) => println!("[srp] M2 verified"),
+                Ok(false) => println!("[srp] M2 mismatch"),
+                Err(e) => println!("[srp] Khong verify duoc M2: {}", e),
             }
         }
 
         let session_key = srp
             .session_key()
-            .ok_or_else(|| anyhow!("Không có session key"))?
+            .ok_or_else(|| anyhow!("Khong co session key"))?
             .to_vec();
 
-        println!("[srp] Session key: {} bytes", session_key.len());
+        println!("[srp] Session key OK ({} bytes)", session_key.len());
 
-        // 8. Decrypt spd nếu có
-        let spd_data = if let Some(spd) = complete_resp.get("spd").and_then(|v| v.as_data()) {
-            match crate::auth::crypto::aes::decrypt_cbc(&session_key, spd) {
+        let spd_data: Dictionary = if let Some(spd) = complete_resp.get("spd").and_then(|v| v.as_data()) {
+            match decrypt_cbc(&session_key, spd) {
                 Ok(decrypted) => match plist::from_bytes::<Value>(&decrypted) {
-                    Ok(val) => val
-                        .as_dictionary()
-                        .cloned()
-                        .unwrap_or_default(),
+                    Ok(val) => val.as_dictionary().cloned().unwrap_or_default(),
                     Err(e) => {
-                        println!("[srp] ⚠️ Parse spd thất bại: {}", e);
-                        plist::Dictionary::new()
+                        println!("[srp] Parse spd that bai: {}", e);
+                        Dictionary::new()
                     }
                 },
                 Err(e) => {
-                    println!("[srp] ⚠️ Decrypt spd thất bại: {}", e);
-                    plist::Dictionary::new()
+                    println!("[srp] Decrypt spd CBC that bai: {}", e);
+                    Dictionary::new()
                 }
             }
         } else {
-            plist::Dictionary::new()
+            Dictionary::new()
         };
 
-        println!("[srp] SPD có {} keys", spd_data.len());
+        println!("[srp] SPD co {} keys", spd_data.len());
 
-        // 9. Xử lý 2FA nếu cần
         if let Some(au) = &auth_type {
-            if au == "trustedDeviceSecondaryAuth"
-                || au == "secondaryAuth"
-                || au == "smsSecondaryAuth"
-            {
-                println!("[srp] Yêu cầu 2FA: {}", au);
+            if au == "trustedDeviceSecondaryAuth" || au == "secondaryAuth" || au == "smsSecondaryAuth" {
+                println!("[srp] Yeu cau 2FA: {}", au);
 
-                // Lấy dsid + idms_token từ spd hoặc status
-                let dsid = spd_data
-                    .get("adsid")
-                    .or_else(|| spd_data.get("dsid"))
-                    .and_then(|v| v.as_string())
-                    .or_else(|| status.get("dsid").and_then(|v| v.as_string()))
-                    .ok_or_else(|| anyhow!("Không lấy được dsid"))?
-                    .to_string();
+                let dsid = extract_string(&spd_data, &["adsid", "dsid"])
+                    .or_else(|| extract_string(&status, &["dsid"]))
+                    .ok_or_else(|| anyhow!("Khong lay duoc dsid cho 2FA"))?;
 
-                let idms
-                    .get("GsIdmsToken")
-                    .or_else(|| spd_data.get("idmsToken"))
-                    .and_then(|v| v.as_string())
-                    .or_else(|| status.get("idmsToken").and_then(|v| v.as_string()))
-                    .ok_or_else(|| anyhow!("Không lấy được idms_token"))?
-                    .to_string();
+                let idms_token = extract_string(&spd_data, &["GsIdmsToken", "idmsToken"])
+                    .or_else(|| extract_string(&status, &["idmsToken"]))
+                    .ok_or_else(|| anyhow!("Khong lay duoc idms_token cho 2FA"))?;
 
-                println!("[srp] DSID: {}, có idms_token", dsid);
+                println!("[srp] DSID: {}", dsid);
 
                 let input_func = |prompt: &str| -> String {
                     use std::io::{self, Write};
@@ -198,7 +182,8 @@ impl SrpFlow {
                     s.trim().to_string()
                 };
 
-                let ok = twofa.handle_2fa(
+                let twofa_ok = TwoFAHandler::handle_2fa(
+                    twofa,
                     &mut gsa.anisette,
                     au,
                     &dsid,
@@ -208,46 +193,32 @@ impl SrpFlow {
                     &input_func,
                 )?;
 
-                if !ok {
-                    return Err(anyhow!("2FA thất bại"));
+                if !twofa_ok {
+                    return Err(anyhow!("2FA that bai"));
                 }
 
-                // Retry login để lấy session key mới
-                if depth >= 1 {
-                    println!("[srp] Đã retry, không retry lần nữa");
-                } else {
-                    println!("[srp] Retry login để lấy session key mới...");
-                    std::thread::sleep(std::time::Duration::from_secs(3));
-                    return self.authenticate(gsa, twofa, apple_id, password, depth + 1);
-                }
+                println!("[srp] 2FA OK, retry login sau 3s...");
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                return self.authenticate(gsa, twofa, apple_id, password, depth + 1);
             }
         }
 
-        // 10. Lấy dsid cuối cùng
-        let dsid = spd_data
-            .get("adsid")
-            .or_else(|| spd_data.get("dsid"))
-            .and_then(|v| v.as_string())
-            .map(|s| s.to_string());
+        let dsid = extract_string(&spd_data, &["adsid", "dsid"]);
 
-        // 11. Fetch app token nếu có đủ data
         let app_token = if let (Some(adsid), Some(c2), Some(sk), Some(idms)) = (
-            spd_data.get("adsid").and_then(|v| v.as_string()),
-            spd_data.get("c").and_then(|v| v.as_string()),
+            extract_string(&spd_data, &["adsid"]),
+            extract_string(&spd_data, &["c"]),
             spd_data.get("sk").and_then(|v| v.as_data()),
-            spd_data.get("GsIdmsToken").and_then(|v| v.as_string()),
+            extract_string(&spd_data, &["GsIdmsToken", "idmsToken"]),
         ) {
-            match self.fetch_app_token(gsa, adsid, c2, idms, sk, &session_key) {
+            match self.fetch_app_token(gsa, &adsid, &c2, &idms, sk, &session_key) {
                 Ok(Some(t)) => {
-                    println!("[srp] ✅ App token nhận được");
+                    println!("[srp] App token OK");
                     Some(t)
                 }
-                Ok(None) => {
-                    println!("[srp] ⚠️ Không lấy được app token");
-                    None
-                }
+                Ok(None) => None,
                 Err(e) => {
-                    println!("[srp] ⚠️ Fetch app token thất bại: {}", e);
+                    println!("[srp] Fetch app token that bai: {}", e);
                     None
                 }
             }
@@ -273,52 +244,44 @@ impl SrpFlow {
         sk: &[u8],
         session_key: &[u8],
     ) -> Result<Option<String>> {
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
+        const APP: &str = APP_XCODE_AUTH;
 
-        const APP: &str = "com.apple.gs.xcode.auth";
-
-        // checksum = HMAC-SHA256(sk, "apptokens" || adsid || app)
-        let mut mac = Hmac::<Sha256>::new_from_slice(sk)
-            .map_err(|e| anyhow!("HMAC init: {}", e))?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(sk).map_err(|e| anyhow!("HMAC init: {}", e))?;
         mac.update(b"apptokens");
         mac.update(adsid.as_bytes());
         mac.update(APP.as_bytes());
         let checksum = mac.finalize().into_bytes().to_vec();
 
-        let mut params = HashMap::new();
+        let mut params: HashMap<String, Value> = HashMap::new();
         params.insert("u".into(), Value::String(adsid.to_string()));
-        params.insert(
-            "app".into(),
-            Value::Array(vec![Value::String(APP.to_string())]),
-        );
+        params.insert("app".into(), Value::Array(vec![Value::String(APP.to_string())]));
         params.insert("c".into(), Value::String(c.to_string()));
         params.insert("t".into(), Value::String(idms_token.to_string()));
         params.insert("checksum".into(), Value::Data(checksum));
         params.insert("o".into(), Value::String("apptokens".into()));
 
+        println!("[srp] Gui apptokens request...");
         let resp = gsa.request(params, 1)?;
 
         let et = resp
             .get("et")
             .and_then(|v| v.as_data())
-            .ok_or_else(|| anyhow!("Response thiếu 'et'"))?;
+            .ok_or_else(|| anyhow!("Response thieu 'et'"))?;
 
-        let decrypted = crate::auth::crypto::aes::decrypt_gcm(session_key, et)?;
+        let decrypted = decrypt_gcm(session_key, et).context("Decrypt et GCM that bai")?;
 
-        let plist_val: Value =
-            plist::from_bytes(&decrypted).context("Parse et plist thất bại")?;
+        let plist_val: Value = plist::from_bytes(&decrypted).context("Parse et plist that bai")?;
 
         let app_tokens = plist_val
             .as_dictionary()
             .and_then(|d| d.get("t"))
             .and_then(|v| v.as_dictionary())
-            .ok_or_else(|| anyhow!("et thiếu 't'"))?;
+            .ok_or_else(|| anyhow!("et thieu 't'"))?;
 
         let token_info = app_tokens
             .get(APP)
             .and_then(|v| v.as_dictionary())
-            .ok_or_else(|| anyhow!("Không có token cho {}", APP))?;
+            .ok_or_else(|| anyhow!("Khong co token cho {}", APP))?;
 
         let token = token_info
             .get("token")
@@ -326,5 +289,22 @@ impl SrpFlow {
             .map(|s| s.to_string());
 
         Ok(token)
+    }
+}
+
+fn extract_string(dict: &Dictionary, keys: &[&str]) -> Option<String> {
+    for k in keys {
+        if let Some(s) = dict.get(*k).and_then(|v| v.as_string()) {
+            return Some(s.to_string());
+        }
+    }
+    None
+}
+
+fn plist_integer(v: &Value) -> Option<i64> {
+    match v {
+        Value::Integer(i) => i.to_string().parse::<i64>().ok(),
+        Value::Real(r) => Some(*r as i64),
+        _ => None,
     }
 }

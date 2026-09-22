@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::auth::anisette::AnisetteClient;
-use crate::constants::{GSA_URL, USER_AGENT as UA};
+use crate::constants::{DEFAULT_CLIENT_INFO, GSA_URL, USER_AGENT as UA};
 
 pub struct GsaClient {
     pub client: Client,
@@ -18,23 +18,22 @@ pub struct GsaClient {
 }
 
 impl GsaClient {
-    pub fn new(anisette: AnisetteClient, user_id: String, device_id: String) -> Result<Self> {
+    pub fn new(anisette: AnisetteClient, user_id: String, device_id: String) -> Self {
         let client = Client::builder()
             .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(30))
-            .build()?;
+            .build()
+            .expect("Failed to build reqwest client");
 
-        Ok(Self {
+        Self {
             client,
             anisette,
             user_id,
             device_id,
-            client_info: crate::constants::DEFAULT_CLIENT_INFO.to_string(),
-        })
+            client_info: DEFAULT_CLIENT_INFO.to_string(),
+        }
     }
 
-    /// Gửi request đến GSA, xử lý retry và rate limit.
-    /// Trả về dictionary chứa Response từ Apple.
     pub fn request(
         &mut self,
         parameters: HashMap<String, Value>,
@@ -46,11 +45,9 @@ impl GsaClient {
             .unwrap_or("?")
             .to_string();
 
-        // apptokens chỉ thử 1 lần (không retry vì token hết hạn nhanh)
         let effective_retries = if op == "apptokens" { 1 } else { max_retries };
 
         for attempt in 0..effective_retries {
-            // Build CPD (Client Provisioning Data)
             let cpd = match self.anisette.build_cpd(
                 &self.user_id,
                 &mut self.device_id,
@@ -59,13 +56,12 @@ impl GsaClient {
             ) {
                 Ok(v) => v,
                 Err(e) => {
-                    eprintln!("[gsa] Không lấy được cpd: {}", e);
+                    eprintln!("[gsa] Khong lay duoc cpd: {}", e);
                     std::thread::sleep(Duration::from_secs(2));
                     continue;
                 }
             };
 
-            // Build request body
             let mut request_dict = Dictionary::new();
             request_dict.insert("cpd".into(), json_to_plist(&cpd));
 
@@ -73,7 +69,6 @@ impl GsaClient {
                 request_dict.insert(k.clone(), v.clone());
             }
 
-            // Wrap trong Header + Request
             let mut header_dict = Dictionary::new();
             header_dict.insert("Version".into(), Value::String("1.0.1".into()));
 
@@ -81,23 +76,15 @@ impl GsaClient {
             body_dict.insert("Header".into(), Value::Dictionary(header_dict));
             body_dict.insert("Request".into(), Value::Dictionary(request_dict));
 
-            // Encode plist XML
-            let body_bytes = match plist::to_writer_xml(
-                &mut Vec::new(),
-                &Value::Dictionary(body_dict),
-            ) {
-                Ok(b) => b,
-                Err(e) => {
-                    return Err(anyhow!("Plist encode: {}", e));
-                }
-            };
+            let mut body_bytes: Vec<u8> = Vec::new();
+            if let Err(e) = plist::to_writer_xml(&mut body_bytes, &Value::Dictionary(body_dict)) {
+                return Err(anyhow!("Plist encode XML that bai: {}", e));
+            }
 
-            eprintln!("[gsa] {} (lần {}/{})", op, attempt + 1, effective_retries);
+            eprintln!("[gsa] {} (lan {}/{})", op, attempt + 1, effective_retries);
 
-            // Build headers
             let headers = self.build_headers()?;
 
-            // Send
             let resp = self
                 .client
                 .post(GSA_URL)
@@ -110,55 +97,48 @@ impl GsaClient {
                     let status = r.status();
                     eprintln!("[gsa] HTTP {}", status);
 
-                    // Rate limit
                     if status.as_u16() == 429 {
                         eprintln!("[gsa] 429 rate limit");
                         if attempt + 1 < effective_retries {
                             std::thread::sleep(Duration::from_secs(10));
                             continue;
                         }
-                        return Err(anyhow!("GSA 429"));
+                        return Err(anyhow!("GSA 429 rate limit"));
                     }
 
-                    // Server error -> retry với backoff
                     if status.is_server_error() {
                         let wait = std::cmp::min(2u64.pow(attempt) + 1, 15);
-                        eprintln!("[gsa] HTTP {} - đợi {}s", status, wait);
+                        eprintln!("[gsa] HTTP {} - doi {}s", status, wait);
                         std::thread::sleep(Duration::from_secs(wait));
                         continue;
                     }
 
-                    // Đọc content
                     let bytes = r.bytes()?;
-
-                    // Apple có thể trả về plist không có wrapper XML
-let content = ensure_plist_wrapper(&bytes);
+                    let content = ensure_plist_wrapper(&bytes);
 
                     let plist_val: Value = match plist::from_bytes(&content) {
                         Ok(v) => v,
                         Err(e) => {
                             return Err(anyhow!(
-                                "Plist parse thất bại: {}. Content: {:?}",
+                                "Plist parse that bai: {}. Content: {:?}",
                                 e,
                                 String::from_utf8_lossy(&content[..content.len().min(200)])
                             ));
                         }
                     };
 
-                    // Lấy Response
                     let response = plist_val
                         .as_dictionary()
                         .and_then(|d| d.get("Response"))
                         .and_then(|v| v.as_dictionary())
-                        .ok_or_else(|| anyhow!("Invalid response: thiếu 'Response'"))?
+                        .ok_or_else(|| anyhow!("Response thieu key 'Response'"))?
                         .clone();
 
-                    // Log result code
                     let ec = response
                         .get("Status")
                         .and_then(|v| v.as_dictionary())
                         .and_then(|d| d.get("ec"))
-                        .and_then(|v| v.as_signed_integer())
+                        .and_then(plist_integer)
                         .unwrap_or(0);
 
                     if ec != 0 {
@@ -179,16 +159,13 @@ let content = ensure_plist_wrapper(&bytes);
                     if attempt + 1 >= effective_retries {
                         return Err(anyhow!("GSA HTTP error: {}", e));
                     }
-                    eprintln!("[gsa] Lỗi: {} - thử lại", e);
+                    eprintln!("[gsa] Loi: {} - thu lai", e);
                     std::thread::sleep(Duration::from_secs(2));
                 }
             }
         }
 
-        Err(anyhow!(
-            "GSA request thất bại sau {} lần",
-            effective_retries
-        ))
+        Err(anyhow!("GSA request that bai sau {} lan", effective_retries))
     }
 
     fn build_headers(&mut self) -> Result<HeaderMap> {
@@ -197,8 +174,7 @@ let content = ensure_plist_wrapper(&bytes);
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/x-xml-plist"));
         headers.insert(ACCEPT, HeaderValue::from_static("text/x-xml-plist"));
         headers.insert(USER_AGENT, HeaderValue::from_static(UA));
-
-        // Client info header
+        headers.insert("Accept-Language", HeaderValue::from_static("en-us"));
         headers.insert(
             "X-Mme-Client-Info",
             HeaderValue::from_str(&self.client_info)?,
@@ -208,8 +184,6 @@ let content = ensure_plist_wrapper(&bytes);
     }
 }
 
-/// Đảm bảo content là XML plist hợp lệ.
-/// Apple đôi khi trả về plist không có wrapper `<?xml ...>`.
 fn ensure_plist_wrapper(bytes: &[u8]) -> Vec<u8> {
     let stripped = bytes
         .iter()
@@ -217,16 +191,11 @@ fn ensure_plist_wrapper(bytes: &[u8]) -> Vec<u8> {
         .map(|i| &bytes[i..])
         .unwrap_or(bytes);
 
-    // Nếu đã là XML hoặc binary plist thì trả về nguyên
     if stripped.starts_with(b"<?xml") || stripped.starts_with(b"bplist") {
         return bytes.to_vec();
     }
 
-    // Wrap thêm header XML
-    let header = b"<?xml version='1.0' encoding='UTF-8'?>\n\
-        <!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' \
-        'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>\n\
-        <plist version='1.0'>\n";
+    let header = b"<?xml version='1.0' encoding='UTF-8'?>\n<!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>\n<plist version='1.0'>\n";
     let footer = b"\n</plist>";
 
     let mut out = Vec::with_capacity(header.len() + bytes.len() + footer.len());
@@ -236,7 +205,6 @@ fn ensure_plist_wrapper(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Chuyển serde_json::Value sang plist::Value (đệ quy).
 pub fn json_to_plist(v: &serde_json::Value) -> Value {
     match v {
         serde_json::Value::Null => Value::String("".into()),
@@ -253,9 +221,7 @@ pub fn json_to_plist(v: &serde_json::Value) -> Value {
             }
         }
         serde_json::Value::String(s) => Value::String(s.clone()),
-        serde_json::Value::Array(arr) => {
-            Value::Array(arr.iter().map(json_to_plist).collect())
-        }
+        serde_json::Value::Array(arr) => Value::Array(arr.iter().map(json_to_plist).collect()),
         serde_json::Value::Object(obj) => {
             let mut d = Dictionary::new();
             for (k, val) in obj {
@@ -263,5 +229,13 @@ pub fn json_to_plist(v: &serde_json::Value) -> Value {
             }
             Value::Dictionary(d)
         }
+    }
+}
+
+fn plist_integer(v: &Value) -> Option<i64> {
+    match v {
+        Value::Integer(i) => i.to_string().parse::<i64>().ok(),
+        Value::Real(r) => Some(*r as i64),
+        _ => None,
     }
 }

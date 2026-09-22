@@ -3,7 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use plist::Value;
 use std::collections::HashMap;
 
-use super::client::{DeveloperClient, DevError};
+use super::client::DeveloperClient;
 use crate::auth::anisette::AnisetteClient;
 
 #[derive(Debug, Clone)]
@@ -14,14 +14,13 @@ pub struct AppGroup {
 }
 
 impl DeveloperClient {
-    /// List App Group hiện có.
     pub fn list_app_groups(
         &mut self,
         auth: &mut AnisetteClient,
     ) -> Result<Vec<AppGroup>> {
         let resp = self
             .request_plist(auth, "ios/listAppGroups.action", HashMap::new(), true)
-            .context("listAppGroups thất bại")?;
+            .context("listAppGroups that bai")?;
 
         let groups = resp
             .get("appGroups")
@@ -64,7 +63,6 @@ impl DeveloperClient {
         Ok(out)
     }
 
-    /// Tạo App Group mới.
     pub fn create_app_group(
         &mut self,
         auth: &mut AnisetteClient,
@@ -87,15 +85,15 @@ impl DeveloperClient {
 
         let resp = self
             .request_plist(auth, "ios/addAppGroup.action", params, true)
-            .context("addAppGroup thất bại")?;
+            .context("addAppGroup that bai")?;
 
         let group = resp
             .get("appGroup")
             .and_then(|v| v.as_dictionary())
             .ok_or_else(|| {
                 anyhow!(
-                    "addAppGroup thất bại: resultCode={:?} userString={:?}",
-                    resp.get("resultCode").and_then(|v| v.as_signed_integer()),
+                    "addAppGroup that bai: resultCode={:?} userString={:?}",
+                    resp.get("resultCode").and_then(plist_integer),
                     resp.get("userString").and_then(|v| v.as_string())
                 )
             })?;
@@ -119,7 +117,6 @@ impl DeveloperClient {
         })
     }
 
-    /// Đảm bảo App Group tồn tại (tạo nếu chưa).
     pub fn ensure_app_group(
         &mut self,
         auth: &mut AnisetteClient,
@@ -128,11 +125,19 @@ impl DeveloperClient {
     ) -> Result<AppGroup> {
         let existing = self.list_app_groups(auth)?;
         if let Some(g) = existing.iter().find(|g| g.group_id == group_id) {
-            println!("[dev] App Group đã có: {}", group_id);
+            println!("[dev] App Group da co: {}", group_id);
             return Ok(g.clone());
         }
 
-        println!("[dev] Tạo App Group: {}", group_id);
+        println!("[dev] Tao App Group: {}", group_id);
         self.create_app_group(auth, group_id, name)
+    }
+}
+
+fn plist_integer(v: &Value) -> Option<i64> {
+    match v {
+        Value::Integer(i) => i.to_string().parse::<i64>().ok(),
+        Value::Real(r) => Some(*r as i64),
+        _ => None,
     }
 }

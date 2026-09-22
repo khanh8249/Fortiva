@@ -18,7 +18,6 @@ pub struct Profile {
     pub encoded_profile: Vec<u8>,
 }
 
-
 impl DeveloperClient {
     pub fn list_app_ids_full(
         &mut self,
@@ -26,7 +25,7 @@ impl DeveloperClient {
     ) -> Result<Vec<AppId>> {
         let resp = self
             .request_plist(auth, "ios/listAppIds.action", HashMap::new(), true)
-            .context("listAppIds thất bại")?;
+            .context("listAppIds that bai")?;
 
         let apps = resp
             .get("appIds")
@@ -95,16 +94,14 @@ impl DeveloperClient {
 
         let resp = self
             .request_plist(auth, "ios/addAppId.action", params, true)
-            .context("addAppId thất bại")?;
+            .context("addAppId that bai")?;
 
         let app_id = resp
             .get("appId")
             .and_then(|v| v.as_dictionary())
             .ok_or_else(|| {
                 let err = DevError {
-                    result_code: resp
-                        .get("resultCode")
-                        .and_then(|v| v.as_signed_integer()),
+                    result_code: resp.get("resultCode").and_then(plist_integer),
                     user_string: resp
                         .get("userString")
                         .or_else(|| resp.get("resultString"))
@@ -112,7 +109,7 @@ impl DeveloperClient {
                         .unwrap_or("?")
                         .to_string(),
                 };
-                anyhow!("addAppId thất bại: {:?}", err)
+                anyhow!("addAppId that bai: {:?}", err)
             })?;
 
         Ok(AppId {
@@ -142,11 +139,11 @@ impl DeveloperClient {
     ) -> Result<AppId> {
         let existing = self.list_app_ids_full(auth)?;
         if let Some(a) = existing.iter().find(|a| a.identifier == bundle_id) {
-            println!("[dev] App ID đã có: {}", bundle_id);
+            println!("[dev] App ID da co: {}", bundle_id);
             return Ok(a.clone());
         }
 
-        println!("[dev] Tạo App ID: {}", bundle_id);
+        println!("[dev] Tao App ID: {}", bundle_id);
         self.create_app_id_full(auth, bundle_id, name)
     }
 
@@ -160,13 +157,11 @@ impl DeveloperClient {
 
         match self.request_plist(auth, "ios/deleteAppId.action", params, true) {
             Ok(resp) => {
-                let code = resp
-                    .get("resultCode")
-                    .and_then(|v| v.as_signed_integer());
+                let code = resp.get("resultCode").and_then(plist_integer);
                 Ok(code.is_none() || code == Some(0))
             }
             Err(e) => {
-                eprintln!("[dev] deleteAppId lỗi: {}", e);
+                eprintln!("[dev] deleteAppId loi: {}", e);
                 Ok(false)
             }
         }
@@ -180,7 +175,7 @@ impl DeveloperClient {
         let app_id_id = app_id
             .app_id_id
             .as_ref()
-            .ok_or_else(|| anyhow!("App ID {} thiếu app_id_id", app_id.identifier))?;
+            .ok_or_else(|| anyhow!("App ID {} thieu app_id_id", app_id.identifier))?;
 
         let delays = [3u64, 5, 7];
         let mut last_err: Option<anyhow::Error> = None;
@@ -205,7 +200,7 @@ impl DeveloperClient {
                             .or_else(|| profile.get("content"))
                             .or_else(|| profile.get("profileContent"))
                             .and_then(|v| v.as_data())
-                            .ok_or_else(|| anyhow!("Profile thiếu 'encodedProfile'"))?;
+                            .ok_or_else(|| anyhow!("Profile thieu 'encodedProfile'"))?;
 
                         return Ok(Profile {
                             encoded_profile: encoded.to_vec(),
@@ -213,9 +208,8 @@ impl DeveloperClient {
                     }
 
                     last_err = Some(anyhow!(
-                        "Response thiếu provisioningProfile: resultCode={:?}, userString={:?}",
-                        resp.get("resultCode")
-                            .and_then(|v| v.as_signed_integer()),
+                        "Response thieu provisioningProfile: resultCode={:?}, userString={:?}",
+                        resp.get("resultCode").and_then(plist_integer),
                         resp.get("userString")
                             .or_else(|| resp.get("resultString"))
                             .and_then(|v| v.as_string())
@@ -238,7 +232,7 @@ impl DeveloperClient {
         }
 
         Err(last_err
-            .unwrap_or_else(|| anyhow!("download profile thất bại sau {} lần", delays.len())))
+            .unwrap_or_else(|| anyhow!("download profile that bai sau {} lan", delays.len())))
     }
 
     pub fn register_bundles(
@@ -251,12 +245,12 @@ impl DeveloperClient {
 
         for (bundle_id, name) in bundles {
             if let Some(a) = existing.iter().find(|a| a.identifier == *bundle_id) {
-                println!("[dev] App ID đã có: {}", bundle_id);
+                println!("[dev] App ID da co: {}", bundle_id);
                 out.push(a.clone());
                 continue;
             }
 
-            println!("[dev] Tạo App ID: {}", bundle_id);
+            println!("[dev] Tao App ID: {}", bundle_id);
             let app_id = self.create_app_id_full(auth, bundle_id, name)?;
             out.push(app_id);
         }
@@ -264,18 +258,6 @@ impl DeveloperClient {
         Ok(out)
     }
 
-
-
-
-
-}
-
-// ============================================================
-//  ASSIGN APP GROUP + INCREASED MEMORY (App ID level)
-// ============================================================
-
-impl DeveloperClient {
-    /// Gán App Group vào App ID.
     pub fn assign_app_group(
         &mut self,
         auth: &mut AnisetteClient,
@@ -285,7 +267,7 @@ impl DeveloperClient {
         let app_id_id = app_id
             .app_id_id
             .as_ref()
-            .ok_or_else(|| anyhow!("App ID {} thiếu app_id_id", app_id.identifier))?;
+            .ok_or_else(|| anyhow!("App ID {} thieu app_id_id", app_id.identifier))?;
 
         let mut params = HashMap::new();
         params.insert("appIdId".into(), Value::String(app_id_id.clone()));
@@ -301,29 +283,25 @@ impl DeveloperClient {
                 params,
                 true,
             )
-            .context("assignAppGroupsToAppId thất bại")?;
+            .context("assignAppGroupsToAppId that bai")?;
 
-        let result_code = resp
-            .get("resultCode")
-            .and_then(|v| v.as_signed_integer())
-            .unwrap_or(0);
+        let result_code = resp.get("resultCode").and_then(plist_integer).unwrap_or(0);
 
         if result_code != 0 {
             return Err(anyhow!(
-                "assign App Group thất bại: code={} userString={:?}",
+                "assign App Group that bai: code={} userString={:?}",
                 result_code,
                 resp.get("userString").and_then(|v| v.as_string())
             ));
         }
 
         println!(
-            "[dev] Gán App Group {} vào {}",
+            "[dev] Gan App Group {} vao {}",
             group_id, app_id.identifier
         );
         Ok(())
     }
 
-    /// Bật Increased Memory Limit cho App ID.
     pub fn add_increased_memory_limit(
         &mut self,
         auth: &mut AnisetteClient,
@@ -332,7 +310,7 @@ impl DeveloperClient {
         let app_id_id = app_id
             .app_id_id
             .as_ref()
-            .ok_or_else(|| anyhow!("App ID {} thiếu app_id_id", app_id.identifier))?;
+            .ok_or_else(|| anyhow!("App ID {} thieu app_id_id", app_id.identifier))?;
 
         let mut params = HashMap::new();
         params.insert("appIdId".into(), Value::String(app_id_id.clone()));
@@ -345,25 +323,30 @@ impl DeveloperClient {
 
         let resp = self
             .request_plist(auth, "ios/enableAppIdFeature.action", params, true)
-            .context("enableAppIdFeature thất bại")?;
+            .context("enableAppIdFeature that bai")?;
 
-        let result_code = resp
-            .get("resultCode")
-            .and_then(|v| v.as_signed_integer())
-            .unwrap_or(0);
+        let result_code = resp.get("resultCode").and_then(plist_integer).unwrap_or(0);
 
         if result_code != 0 {
             return Err(anyhow!(
-                "enable IncreasedMemoryLimit thất bại: code={} userString={:?}",
+                "enable IncreasedMemoryLimit that bai: code={} userString={:?}",
                 result_code,
                 resp.get("userString").and_then(|v| v.as_string())
             ));
         }
 
         println!(
-            "[dev] Bật Increased Memory Limit cho {}",
+            "[dev] Bat Increased Memory Limit cho {}",
             app_id.identifier
         );
         Ok(())
+    }
+}
+
+fn plist_integer(v: &Value) -> Option<i64> {
+    match v {
+        Value::Integer(i) => i.to_string().parse::<i64>().ok(),
+        Value::Real(r) => Some(*r as i64),
+        _ => None,
     }
 }
