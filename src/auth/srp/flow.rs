@@ -14,6 +14,27 @@ use crate::AuthResult;
 
 const APP_XCODE_AUTH: &str = "com.apple.gs.xcode.auth";
 
+
+/// Extract data field tu plist::Value.
+/// Ho tro ca String (base64) va Data (raw bytes).
+fn extract_data_field(value: Option<&Value>, field: &str) -> Result<Vec<u8>> {
+    match value {
+        Some(Value::String(s)) => {
+            use base64::{engine::general_purpose, Engine as _};
+            general_purpose::STANDARD
+                .decode(s)
+                .with_context(|| format!("Decode {} base64 that bai", field))
+        }
+        Some(Value::Data(d)) => Ok(d.to_vec()),
+        Some(other) => Err(anyhow!(
+            "Field '{}' sai type: {:?}. Expected String hoac Data",
+            field,
+            other
+        )),
+        None => Err(anyhow!("Response thieu field '{}'", field)),
+    }
+}
+
 pub struct SrpFlow;
 
 impl SrpFlow {
@@ -61,21 +82,20 @@ impl SrpFlow {
             .ok_or_else(|| anyhow!("Response thieu 'sp'"))?
             .to_string();
 
-        let salt_b64 = init_resp
-            .get("s")
-            .and_then(|v| v.as_string())
-            .ok_or_else(|| anyhow!("Response thieu 's'"))?;
+        let salt = extract_data_field(init_resp.get("s"), "s")?;
 
-        let b_b64 = init_resp
-            .get("B")
-            .and_then(|v| v.as_string())
-            .ok_or_else(|| anyhow!("Response thieu 'B'"))?;
+        let b_pub = extract_data_field(init_resp.get("B"), "B")?;
 
-        let c = init_resp
-            .get("c")
-            .and_then(|v| v.as_string())
-            .ok_or_else(|| anyhow!("Response thieu 'c'"))?
-            .to_string();
+
+        // c co the la String hoac Data
+        let c = match init_resp.get("c") {
+            Some(Value::String(s)) => s.clone(),
+            Some(Value::Data(d)) => {
+                use base64::{engine::general_purpose, Engine as _};
+                general_purpose::STANDARD.encode(d)
+            }
+            other => return Err(anyhow!("Field 'c' sai type: {:?}", other)),
+        };
 
         let iterations = init_resp
             .get("i")
