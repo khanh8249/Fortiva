@@ -1,6 +1,6 @@
 // src/auth/srp/flow.rs
 use anyhow::{anyhow, Context, Result};
-use base64::{engine::general_purpose, Engine as _};
+
 use hmac::{Hmac, Mac};
 use plist::{Dictionary, Value};
 use sha2::Sha256;
@@ -20,7 +20,7 @@ const APP_XCODE_AUTH: &str = "com.apple.gs.xcode.auth";
 fn extract_data_field(value: Option<&Value>, field: &str) -> Result<Vec<u8>> {
     match value {
         Some(Value::String(s)) => {
-            use base64::{engine::general_purpose, Engine as _};
+            
             general_purpose::STANDARD
                 .decode(s)
                 .with_context(|| format!("Decode {} base64 that bai", field))
@@ -91,7 +91,7 @@ impl SrpFlow {
         let c = match init_resp.get("c") {
             Some(Value::String(s)) => s.clone(),
             Some(Value::Data(d)) => {
-                use base64::{engine::general_purpose, Engine as _};
+                
                 general_purpose::STANDARD.encode(d)
             }
             other => return Err(anyhow!("Field 'c' sai type: {:?}", other)),

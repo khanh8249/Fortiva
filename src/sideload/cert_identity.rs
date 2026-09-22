@@ -1,5 +1,5 @@
 // src/sideload/cert_identity.rs
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use std::path::Path;
 
 pub struct CertificateIdentity {

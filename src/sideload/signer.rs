@@ -26,8 +26,9 @@ pub fn sign_app(
     let team_id = extract_team_id(cert);
     let entitlements = extract_entitlements(profile_data, special, &team_id)?;
 
-    let entitlements_xml = plist::to_writer_xml(
-        &mut Vec::new(),
+    let mut entitlements_xml: Vec<u8> = Vec::new();
+    plist::to_writer_xml(
+        &mut entitlements_xml,
         &plist::Value::Dictionary(entitlements),
     )
     .context("Encode entitlements XML thất bại")?;
@@ -93,7 +94,7 @@ fn setup_signing_settings(
         .to_der()
         .context("Convert cert to DER that bai")?;
 
-    let x509 = x509_certificate::CapturedX509Certificate::from_der(&cert_der)
+    let x509 = x509_certificate::CapturedX509Certificate::from_der(cert_der)
         .context("Load cert from DER that bai")?;
 
     settings.set_signing_key(
