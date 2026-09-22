@@ -3,8 +3,6 @@ use anyhow::{anyhow, Context, Result};
 use fortiva::auth::anisette::AnisetteClient;
 use fortiva::auth::gsa::GsaClient;
 use fortiva::auth::twofa::TwoFAHandler;
-use fortiva::auth::AuthResult;
-use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -22,14 +20,6 @@ fn prompt_text(label: &str) -> String {
 
 fn prompt_password(label: &str) -> String {
     rpassword::prompt_password(label).unwrap_or_default()
-}
-
-fn prompt_yn(label: &str) -> bool {
-    print!("{}", label);
-    io::stdout().flush().ok();
-    let mut s = String::new();
-    io::stdin().read_line(&mut s).ok();
-    s.trim().to_lowercase() == "y"
 }
 
 fn pause() {
@@ -58,11 +48,9 @@ fn prompt_choice() -> String {
     println!("  2. Test anisette server");
     println!("  3. Test tạo CSR");
     println!("  4. Sideload IPA (sign only)");
-    println!("  5. Install .app bundle (đã ký)");
-    println!("  6. Setup SideStore pairing file");
-    println!("  7. Thoát");
+    println!("  5. Thoát");
     println!();
-    print!("Chọn (1-7): ");
+    print!("Chọn (1-5): ");
     io::stdout().flush().ok();
     let mut s = String::new();
     io::stdin().read_line(&mut s).expect("read line");
@@ -88,30 +76,23 @@ fn cmd_login_apple_id() -> Result<()> {
 
     println!("\n[auth] Khởi tạo pipeline...");
 
-    // 1. Anisette
     let mut anisette = AnisetteClient::new(None);
     match anisette.fetch(false) {
         Ok(headers) => println!("[auth] ✅ Anisette OK, {} headers", headers.len()),
         Err(e) => {
             eprintln!("[auth] ❌ Anisette thất bại: {}", e);
-            eprintln!("[auth] Server anisette có thể đang chết. Thử lại sau.");
             return Err(e);
         }
     }
 
-    // 2. User/Device ID
     let user_id = uuid::Uuid::new_v4().to_string().to_uppercase();
     let device_id = uuid::Uuid::new_v4().to_string().to_uppercase();
 
-    // 3. GSA client
-    let mut gsa = GsaClient::new(anisette, user_id.clone(), device_id.clone())?;
-
-    // 4. 2FA handler
+    let mut gsa = GsaClient::new(anisette, user_id.clone(), device_id.clone());
     let mut twofa = TwoFAHandler::new();
 
-    // 5. SRP flow
     println!("\n[auth] Bắt đầu SRP authentication...");
-    let srp = fortiva::auth::srp::SrpFlow::new();
+    let mut srp = fortiva::auth::srp::SrpFlow::new();
 
     match srp.authenticate(&mut gsa, &mut twofa, &apple_id, &password, 0) {
         Ok(result) => {
@@ -128,7 +109,6 @@ fn cmd_login_apple_id() -> Result<()> {
         }
         Err(e) => {
             eprintln!("\n❌ SRP flow thất bại: {:#}", e);
-            eprintln!("[auth] (Nếu lỗi SRP variant, cần debug thêm)");
         }
     }
 
@@ -247,7 +227,7 @@ fn cmd_test_csr() -> Result<()> {
 }
 
 // ============================================================
-//  FEATURE 4: SIDELOAD IPA
+//  FEATURE 4: SIDELOAD IPA (sign only)
 // ============================================================
 
 fn cmd_sideload() -> Result<()> {
@@ -288,7 +268,6 @@ fn cmd_sideload() -> Result<()> {
         ));
     }
 
-    // Setup
     let anisette = AnisetteClient::new(None);
     let dev = fortiva::dev::DeveloperClient::new(
         "signonly".to_string(),
@@ -305,120 +284,7 @@ fn cmd_sideload() -> Result<()> {
 
     println!("\n[sideload] ✅ IPA đã ký.");
     println!("[sideload] App bundle: {}", signed_path.display());
-    println!("[sideload] Có thể dùng menu 5 để cài lên iPhone.");
 
-    Ok(())
-}
-
-// ============================================================
-//  FEATURE 5: INSTALL .APP BUNDLE
-// ============================================================
-
-fn cmd_install_app() -> Result<()> {
-    println!("\n=== INSTALL APP BUNDLE ===\n");
-    println!("Nhập đường dẫn tới .app bundle đã ký");
-    println!("(hoặc thư mục Payload/.../*.app)");
-    println!();
-
-    let app_path = prompt_text("Đường dẫn .app: ");
-    if app_path.is_empty() {
-        return Err(anyhow!("Đường dẫn không được rỗng"));
-    }
-    let path = PathBuf::from(shellexpand(&app_path));
-    if !path.exists() {
-        return Err(anyhow!("Path không tồn tại: {}", path.display()));
-    }
-    if !path.is_dir() {
-        return Err(anyhow!("Path phải là thư mục: {}", path.display()));
-    }
-
-    println!("\n[install] Detect thiết bị iOS...");
-    let device = fortiva::install::detect_device()?;
-    println!("[install] ✅ UDID: {}", device.udid);
-
-    println!("\n[install] Chuẩn bị runtime...");
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("Tạo tokio runtime thất bại")?;
-
-    rt.block_on(async {
-        use idevice::provider::UsbmuxdProvider;
-        use idevice::usbmuxd::UsbmuxdAddr;
-
-        println!("[install] Kết nối usbmuxd provider...");
-        let provider = UsbmuxdProvider::new(UsbmuxdAddr::default())
-            .await
-            .context("Tạo usbmuxd provider thất bại")?;
-
-        println!("[install] Bắt đầu upload + install...\n");
-
-        fortiva::install::install_app(&provider, &path, |pct| {
-            print!("\r[install] Progress: {:3}%", pct);
-            io::stdout().flush().ok();
-        })
-        .await?;
-
-        println!();
-        Ok::<_, anyhow::Error>(())
-    })?;
-
-    println!("\n[install] ✅ Cài đặt thành công!");
-    Ok(())
-}
-
-// ============================================================
-//  FEATURE 6: SETUP SIDESTORE PAIRING
-// ============================================================
-
-fn cmd_setup_sidestore_pairing() -> Result<()> {
-    println!("\n=== SETUP SIDESTORE PAIRING ===\n");
-    println!("Tool này tự viết pairing file vào container của SideStore");
-    println!("để SideStore sideload không cần Mac.\n");
-    println!("Yêu cầu:");
-    println!("  - iPhone đã cài SideStore");
-    println!("  - Đã pair ít nhất 1 lần (idevicepair pair)");
-    println!("  - usbmuxd đang chạy");
-    println!();
-
-    // Kiểm tra pairing record
-    let records = fortiva::tools::list_pairing_records();
-    if records.is_empty() {
-        println!("⚠️  Không tìm thấy pairing record nào.");
-        println!("Hãy chạy: idevicepair pair");
-        println!();
-        if !prompt_yn("Tiếp tục? (y/n): ") {
-            return Ok(());
-        }
-    } else {
-        println!("✅ Tìm thấy {} pairing record(s):", records.len());
-        for r in &records {
-            println!("   - {}", r.display());
-        }
-        println!();
-        if !prompt_yn("Tiếp tục? (y/n): ") {
-            println!("Hủy.");
-            return Ok(());
-        }
-    }
-
-    // Notify callback
-    let notify = |msg: &str| -> Result<bool> {
-        println!("\n⚠️  {}", msg);
-        Ok(prompt_yn("Tiếp tục? (y/n): "))
-    };
-
-    // Chạy async
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("Tạo tokio runtime thất bại")?;
-
-    rt.block_on(async {
-        fortiva::tools::setup_sidestore_pairing(notify).await
-    })?;
-
-    println!("\n[sidestore] ✅ Hoàn tất!");
     Ok(())
 }
 
@@ -427,7 +293,6 @@ fn cmd_setup_sidestore_pairing() -> Result<()> {
 // ============================================================
 
 fn main() {
-    // Tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -451,9 +316,7 @@ fn main() {
             "2" => cmd_test_anisette(),
             "3" => cmd_test_csr(),
             "4" => cmd_sideload(),
-            "5" => cmd_install_app(),
-            "6" => cmd_setup_sidestore_pairing(),
-            "7" => {
+            "5" => {
                 println!("\nTạm biệt.");
                 return;
             }
