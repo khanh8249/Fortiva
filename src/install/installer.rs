@@ -1,8 +1,9 @@
-// src/install/installer.rs
-use anyhow::Result;
+use anyhow::{Context, Result};
 use idevice::services::installation_proxy::InstallationProxyClient;
+use idevice::provider::IdeviceProvider; // Nếu crate idevice dùng Provider để connect
 use plist::{Dictionary, Value};
 
+/// Low-level install hàm gốc đã fix closure
 pub async fn install_app(
     instproxy: &mut InstallationProxyClient,
     remote_dir: &str,
@@ -12,7 +13,7 @@ pub async fn install_app(
         .install_with_callback(
             remote_dir,
             Some(Value::Dictionary(options)),
-            |_| async {},
+            |_| {}, // FIX: Bỏ chữ `async`, dùng closure đồng bộ nhận progress!
             (),
         )
         .await?;
@@ -29,10 +30,28 @@ pub async fn upgrade_app(
         .install_with_callback(
             remote_dir,
             Some(Value::Dictionary(options)),
-            |_| async {},
+            |_| {}, // FIX: Bỏ `async` ở đây luôn
             (),
         )
         .await?;
+
+    Ok(())
+}
+
+/// High-level function để `main.rs` gọi trực tiếp qua app_path & udid
+pub async fn install_app_bundle(app_path: &str, udid: &str) -> Result<()> {
+    // 1. Khởi tạo connection tới thiết bị qua UDID
+    let provider = IdeviceProvider::new(udid)?;
+    let mut instproxy = InstallationProxyClient::connect(&provider)
+        .await
+        .context("Không thể kết nối tới InstallationProxyService")?;
+
+    // 2. Tạo options mặc định cho việc install
+    let mut options = Dictionary::new();
+    options.insert("PackageType".to_string(), Value::String("Developer".to_string()));
+
+    // 3. Tiến hành install
+    install_app(&mut instproxy, app_path, options).await?;
 
     Ok(())
 }

@@ -17,7 +17,7 @@ fn prompt_text(label: &str) -> String {
     print!("  {} {} ", theme::primary("»"), label);
     io::stdout().flush().ok();
     let mut buf = Vec::new();
-    io::stdin().read_until(b'\n', &mut buf).ok();
+    io::stdin().lock().read_until(b'\n', &mut buf).ok();
     String::from_utf8_lossy(&buf).trim().to_string()
 }
 

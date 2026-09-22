@@ -15,3 +15,4 @@ pub use auth::AuthResult;
 pub use auth::Fortiva;
 pub use dev::DeveloperClient;
 pub use sideload::Sideloader;
+pub use install::*; // nếu fail thì khánh ăn cứt
