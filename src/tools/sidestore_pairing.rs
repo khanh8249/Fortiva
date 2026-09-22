@@ -114,9 +114,7 @@ where
     // 4. Tạo provider
     let addr = UsbmuxdAddr::from_env_var()
         .unwrap_or_else(|_| UsbmuxdAddr::default());
-    let provider = device
-        .to_provider(addr, 0, "fortiva")
-        .context("Tạo provider thất bại")?;
+    let provider = device.to_provider(addr, "fortiva");
 
     // 5. Tìm SideStore bundle
     println!("\n[sidestore] Query app list...");
