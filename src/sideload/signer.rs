@@ -2,6 +2,7 @@
 use anyhow::{Context, Result};
 use apple_codesign::cryptography::{InMemoryPrivateKey, PrivateKey};
 use apple_codesign::{SigningSettings, UnifiedSigner};
+use idevice::IdeviceService;  // <-- thêm dòng này
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;

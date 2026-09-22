@@ -41,7 +41,7 @@ pub async fn upgrade_app(
 /// High-level function để `main.rs` gọi trực tiếp qua app_path & udid
 pub async fn install_app_bundle(app_path: &str, udid: &str) -> Result<()> {
     // 1. Khởi tạo connection tới thiết bị qua UDID
-    let provider = IdeviceProvider::new(udid)?;
+    let provider = <dyn IdeviceProvider::new(udid)?;
     let mut instproxy = InstallationProxyClient::connect(&provider)
         .await
         .context("Không thể kết nối tới InstallationProxyService")?;
