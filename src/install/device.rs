@@ -1,7 +1,7 @@
 // src/install/device.rs
 use anyhow::{anyhow, Context, Result};
 use idevice::provider::IdeviceProvider;
-use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
+use idevice::usbmuxd::UsbmuxdConnection;
 
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {

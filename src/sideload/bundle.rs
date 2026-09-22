@@ -180,7 +180,8 @@ fn read_sub_bundles(dir: &Path) -> Result<Vec<Bundle>> {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or("");
+            .unwrap_or("")
+            .to_string();
 
         let is_bundle = name.ends_with(".appex")
             || name.ends_with(".framework")
@@ -194,10 +195,11 @@ fn read_sub_bundles(dir: &Path) -> Result<Vec<Bundle>> {
             continue;
         }
 
+        let name_for_log = name.clone();
         match Bundle::new(path) {
             Ok(b) => out.push(b),
             Err(e) => {
-                eprintln!("[bundle] Bỏ qua {}: {}", name, e);
+                eprintln!("[bundle] Bo qua {}: {}", name_for_log, e);
             }
         }
     }

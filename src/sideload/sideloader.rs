@@ -1,5 +1,5 @@
 // src/sideload/sideloader.rs
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -209,48 +209,4 @@ impl Sideloader {
         Ok(signed_path)
     }
 
-    /// Sign + install (dùng cho flow end-to-end).
-    pub fn sign_and_install(
-        &mut self,
-        ipa_path: &Path,
-        cert_pem: &Path,
-        key_pem: &Path,
-        profile_path: &Path,
-    ) -> Result<()> {
-        let signed_path = self.sign_ipa(ipa_path, cert_pem, key_pem, profile_path)?;
-
-        println!("\n[sideload] Bắt đầu cài đặt...");
-
-        // Detect device
-        let device = crate::install::detect_device()?;
-        println!("[sideload] Device: {}", device.udid);
-
-        // Runtime async
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .context("Tạo tokio runtime thất bại")?;
-
-        rt.block_on(async {
-            use idevice::provider::UsbmuxdProvider;
-            use idevice::usbmuxd::UsbmuxdAddr;
-
-            let provider = UsbmuxdProvider::new(UsbmuxdAddr::default())
-                .await
-                .context("Tạo usbmuxd provider thất bại")?;
-
-            crate::install::install_app(&provider, &signed_path, |pct| {
-                print!("\r[sideload] Install: {:3}%", pct);
-                use std::io::Write;
-                std::io::stdout().flush().ok();
-            })
-            .await?;
-
-            println!();
-            Ok::<_, anyhow::Error>(())
-        })?;
-
-        println!("[sideload] ✅ Cài đặt thành công!");
-        Ok(())
-    }
 }

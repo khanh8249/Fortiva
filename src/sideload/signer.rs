@@ -26,7 +26,7 @@ pub fn sign_app(
     let team_id = extract_team_id(cert);
     let entitlements = extract_entitlements(profile_data, special, &team_id)?;
 
-    let entitlements_xml = plist::to_formatted_writer(
+    let entitlements_xml = plist::to_writer_xml(
         &mut Vec::new(),
         &plist::Value::Dictionary(entitlements),
     )
@@ -74,14 +74,27 @@ fn setup_signing_settings(
 ) -> Result<()> {
     use apple_codesign::cryptography::{InMemoryPrivateKey, PrivateKey};
 
-    let signing_key = InMemoryPrivateKey::from_pem(
-        &cert.key_pem,
-        None,
-    )
-    .context("Load private key thất bại")?;
+    // Parse PEM → DER (PKCS#8)
+    use openssl::pkey::PKey;
+    let pkey = PKey::private_key_from_pem(cert.key_pem.as_bytes())
+        .context("Parse private key PEM that bai")?;
+    let pkcs8_der = pkey
+        .private_key_to_pkcs8()
+        .context("Convert key to PKCS#8 DER that bai")?;
 
-    let x509 = x509_certificate::CapturedX509Certificate::from_pem(&cert.cert_pem)
-        .context("Load cert PEM thất bại")?;
+    let signing_key = InMemoryPrivateKey::from_pkcs8_der(&pkcs8_der)
+        .context("Load private key that bai")?;
+
+    // Parse cert PEM → DER
+    use openssl::x509::X509;
+    let cert_x509 = X509::from_pem(cert.cert_pem.as_bytes())
+        .context("Parse cert PEM that bai")?;
+    let cert_der = cert_x509
+        .to_der()
+        .context("Convert cert to DER that bai")?;
+
+    let x509 = x509_certificate::CapturedX509Certificate::from_der(&cert_der)
+        .context("Load cert from DER that bai")?;
 
     settings.set_signing_key(
         signing_key.as_key_info_signer(),

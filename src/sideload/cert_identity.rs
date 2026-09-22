@@ -1,7 +1,5 @@
 // src/sideload/cert_identity.rs
 use anyhow::{anyhow, Context, Result};
-use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey, LineEnding};
-use rsa::RsaPrivateKey;
 use std::path::Path;
 
 pub struct CertificateIdentity {

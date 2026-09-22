@@ -28,7 +28,7 @@ impl Fortiva {
         let device_id = uuid::Uuid::new_v4().to_string().to_uppercase();
 
         let anisette = AnisetteClient::new(anisette_url);
-        let gsa = GsaClient::new(anisette, user_id.clone(), device_id.clone())?;
+        let gsa = GsaClient::new(anisette, user_id.clone(), device_id.clone());
 
         Ok(Self {
             gsa,
