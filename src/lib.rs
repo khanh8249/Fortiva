@@ -6,6 +6,7 @@ pub mod install;
 pub mod sideload;
 pub mod tools;
 pub mod ui;
+pub mod usb;
 
 // Nếu có usbmuxd tự viết thì giữ, nếu không thì bỏ
 // pub mod usbmuxd;
