@@ -1,5 +1,5 @@
 // src/sideload/signer.rs
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use apple_codesign::cryptography::{InMemoryPrivateKey, PrivateKey};
 use apple_codesign::{SettingsScope, SigningSettings, UnifiedSigner};
 use plist::{Dictionary, Value};
@@ -152,7 +152,7 @@ fn dict_to_xml_string(dict: &Dictionary) -> Result<String> {
 fn build_signing_key(cert: &CertificateIdentity) -> Result<InMemoryPrivateKey> {
     use openssl::pkey::PKey;
 
-    let pkey = PKey entitle::private_key_from_pem(cert.key_pem.as_bytes())
+    let pkey = PKey::private_key_from_pem(cert.key_pem.as_bytes())
         .context("Parse private key PEM that bai")?;
     let pkcs8_der = pkey
         .private_key_to_pkcs8()
