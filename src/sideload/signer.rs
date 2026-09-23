@@ -15,13 +15,13 @@ pub fn sign_app(
 ) -> Result<()> {
     println!("[sign] Chuẩn bị SigningSettings...");
 
-    let _settings = SigningSettings::default();
+    let settings = SigningSettings::default();
 
     // Setup cert + chain
     let signing_key = build_signing_key(cert)?;
     let x509 = build_x509_cert(cert)?;
 
-    let _settings = SigningSettings::default();
+    let settings = SigningSettings::default();
     settings.set_signing_key(signing_key.as_key_info_signer(), x509);
     settings.chain_apple_certificates();
     settings.set_team_id_from_signing_certificate();
