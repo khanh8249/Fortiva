@@ -83,6 +83,7 @@ impl Sideloader {
         // ============================================================
         let mut main_app_id: Option<crate::dev::AppId> = None;
         let mut extension_app_ids: Vec<(String, crate::dev::AppId)> = Vec::new();
+        let mut extension_profiles: Vec<(String, Vec<u8>)> = Vec::new();
 
         if special.is_some() {
             println!("\n[sideload] Đăng ký App IDs với Apple...");
@@ -126,6 +127,33 @@ impl Sideloader {
                         Ok(id) => extension_app_ids.push((ext_id, id)),
                         Err(e) => {
                             println!("[sideload] ⚠️ Extension fail: {}", e);
+                        }
+                    }
+                }
+
+                // Tải profile RIÊNG cho từng extension qua Apple Developer API
+                if !extension_app_ids.is_empty() {
+                    println!("\n[sideload] Tải profile cho extensions...");
+                    for (ext_id, ext_app_id) in &extension_app_ids {
+                        match self.dev.download_team_provisioning_profile(
+                            &mut self.anisette,
+                            ext_app_id,
+                        ) {
+                            Ok(profile) => {
+                                println!(
+                                    "[sideload] ✅ Ext profile OK: {} ({} bytes)",
+                                    ext_id,
+                                    profile.encoded_profile.len()
+                                );
+                                extension_profiles
+                                    .push((ext_id.clone(), profile.encoded_profile));
+                            }
+                            Err(e) => {
+                                println!(
+                                    "[sideload] ⚠️ Ext profile fail ({}): {}",
+                                    ext_id, e
+                                );
+                            }
                         }
                     }
                 }
@@ -232,7 +260,19 @@ impl Sideloader {
         // BƯỚC 11: Nhúng profile
         // ============================================================
         println!("[sideload] Nhúng provisioning profile...");
+
+        // 1. Nhúng profile user cung cấp vào MAIN bundle
         app.write_profiles(&profile_data)?;
+
+        // 2. Nhúng profile RIÊNG vào từng extension (đã tải từ Apple API)
+        for (ext_id, ext_profile) in &extension_profiles {
+            if let Err(e) = app.write_profile_for_extension(ext_id, ext_profile) {
+                println!(
+                    "[sideload] ⚠️ Nhúng profile ext fail ({}): {}",
+                    ext_id, e
+                );
+            }
+        }
 
         // ============================================================
         // BƯỚC 12: Ký

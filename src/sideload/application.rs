@@ -159,18 +159,36 @@ impl Application {
         Ok(())
     }
 
+    /// Nhúng profile vào MAIN bundle only.
+    /// Extension sẽ nhận profile riêng qua `write_profile_for_extension`.
     pub fn write_profiles(&self, profile_data: &[u8]) -> Result<()> {
         let main_path = self.bundle.bundle_dir.join("embedded.mobileprovision");
         fs::write(&main_path, profile_data)
             .with_context(|| format!("Ghi profile that bai: {}", main_path.display()))?;
-
-        for ext in self.bundle.app_extensions() {
-            let ext_path = ext.bundle_dir.join("embedded.mobileprovision");
-            fs::write(&ext_path, profile_data)
-                .with_context(|| format!("Ghi profile that bai: {}", ext_path.display()))?;
-        }
-
+        println!("[app] Nhúng profile vào main bundle");
         Ok(())
+    }
+
+    /// Nhúng profile riêng cho từng extension theo bundle id.
+    pub fn write_profile_for_extension(
+        &self,
+        extension_bundle_id: &str,
+        profile_data: &[u8],
+    ) -> Result<()> {
+        for ext in self.bundle.app_extensions() {
+            if ext.bundle_identifier() == Some(extension_bundle_id) {
+                let ext_path = ext.bundle_dir.join("embedded.mobileprovision");
+                fs::write(&ext_path, profile_data).with_context(|| {
+                    format!("Ghi ext profile that bai: {}", ext_path.display())
+                })?;
+                println!("[app] Nhúng profile vào ext: {}", extension_bundle_id);
+                return Ok(());
+            }
+        }
+        Err(anyhow!(
+            "Không tìm thấy extension: {}",
+            extension_bundle_id
+        ))
     }
 
     pub fn apply_special_app_behavior(

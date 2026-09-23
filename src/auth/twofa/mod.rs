@@ -109,34 +109,34 @@ impl TwoFAHandler {
     ) -> Result<bool> {
         match auth_type {
             "trustedDeviceSecondaryAuth" | "secondaryAuth" => {
-                println!("[2fa] Thử trusted device trước...");
+                println!("[2fa] Trying trusted device first...");
                 let trusted = TrustedDeviceHandler;
                 match trusted.handle(
                     twofa, anisette, dsid, idms_token, user_id, device_id, input_func,
                 ) {
                     Ok(true) => return Ok(true),
                     Ok(false) => println!("[2fa] Trusted device fail, fallback SMS"),
-                    Err(e) => println!("[2fa] Trusted device lỗi: {}, fallback SMS", e),
+                    Err(e) => println!("[2fa] Trusted device error: {}, fallback SMS", e),
                 }
 
                 let sms = SmsHandler;
                 sms.handle(twofa, anisette, dsid, idms_token, user_id, device_id, input_func)
             }
             "smsSecondaryAuth" => {
-                println!("[2fa] Thử SMS trước...");
+                println!("[2fa] Trying SMS first...");
                 let sms = SmsHandler;
                 match sms.handle(
                     twofa, anisette, dsid, idms_token, user_id, device_id, input_func,
                 ) {
                     Ok(true) => return Ok(true),
                     Ok(false) => println!("[2fa] SMS fail, fallback trusted device"),
-                    Err(e) => println!("[2fa] SMS lỗi: {}, fallback trusted device", e),
+                    Err(e) => println!("[2fa] SMS error: {}, fallback trusted device", e),
                 }
 
                 let trusted = TrustedDeviceHandler;
                 trusted.handle(twofa, anisette, dsid, idms_token, user_id, device_id, input_func)
             }
-            other => Err(anyhow!("2FA type không hỗ trợ: {}", other)),
+            other => Err(anyhow!("2FA type not supported: {}", other)),
         }
     }
 }

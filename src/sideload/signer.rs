@@ -43,9 +43,18 @@ pub fn sign_app(
     settings
         .set_entitlements_xml(
             apple_codesign::SettingsScope::Main,
+            entitlements_xml_str.clone(),
+        )
+        .context("Set main entitlements XML thất bại")?;
+
+    // ✅ FIX: Set entitlements cho NESTED bundles (extension, framework)
+    // để apple_codesign áp dụng khi ký từng bundle con
+    settings
+        .set_entitlements_xml(
+            apple_codesign::SettingsScope::Nested,
             entitlements_xml_str,
         )
-        .context("Set entitlements XML thất bại")?;
+        .context("Set nested entitlements XML thất bại")?;
 
     let signer = UnifiedSigner::new(settings);
 
