@@ -178,6 +178,10 @@ impl SrpFlow {
             if au == "trustedDeviceSecondaryAuth" || au == "secondaryAuth" || au == "smsSecondaryAuth" {
                 println!("[srp] Yeu cau 2FA: {}", au);
 
+                // Delay 3s trước khi gửi 2FA — tránh Apple 403 vì request quá nhanh
+                println!("[srp] Chờ 3s trước khi gửi 2FA request...");
+                std::thread::sleep(std::time::Duration::from_secs(3));
+
                 let dsid = extract_string(&spd_data, &["adsid", "dsid"])
                     .or_else(|| extract_string(&status, &["dsid"]))
                     .ok_or_else(|| anyhow!("Khong lay duoc dsid cho 2FA"))?;

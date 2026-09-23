@@ -31,6 +31,9 @@ impl TrustedDeviceHandler {
         eprintln!("[DBG-2FA-TRUSTED] ==========================");
 
         for attempt in 0..3 {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_secs(2));
+            }
             match twofa
                 .client
                 .get(TRUSTED_DEVICE_URL)

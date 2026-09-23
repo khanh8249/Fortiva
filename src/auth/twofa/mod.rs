@@ -22,6 +22,9 @@ impl TwoFAHandler {
         let client = reqwest::blocking::Client::builder()
             .danger_accept_invalid_certs(true)
             .timeout(std::time::Duration::from_secs(30))
+            .pool_max_idle_per_host(0)
+            .no_proxy()
+            .http1_only()
             .build()
             .expect("reqwest client");
 

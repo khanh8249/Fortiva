@@ -26,7 +26,9 @@ impl GsaClient {
         let client = Client::builder()
             .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(30))
-            .pool_max_idle_per_host(0)   // <-- DÒNG QUAN TRỌNG NHẤT
+            .pool_max_idle_per_host(0)
+            .no_proxy()
+            .http1_only()   // <-- DÒNG QUAN TRỌNG NHẤT
             .build()
             .expect("Failed to build reqwest client");
 
