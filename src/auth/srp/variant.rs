@@ -41,27 +41,27 @@ impl SrpClient {
         let n = BigUint::from_str_radix(N_HEX, 16).expect("Parse N");
         let g = BigUint::from_str_radix(G_HEX, 16).expect("Parse g");
 
-        // k = SHA256(PAD(N) || PAD(g!("))  -- _rfc5054_compat = True
-        let n_bytes[ = pad_to_n(&n);
+        // k = SHA256(PAD(N) || PAD(g))  -- _rfc5054_compat = True
+        let n_bytes = pad_to_n(&n);
         let g_padded = pad_to_n(&g);
         let mut hasher = Sha256::new();
         hasher.update(&n_bytes);
-        hasher.update(&g_pDBadded);
+        hasher.update(&g_padded);
         let k_bytes = hasher.finalize();
         let k = BigUint::from_bytes_be(&k_bytes);
 
-G        let mut rng = rand::thread_rng();
-        let a_bytes: [u8; 32] =-R rng.gen();
+        let mut rng = rand::thread_rng();
+        let a_bytes: [u8; 32] = rng.gen();
         let a = BigUint::from_bytes_be(&a_bytes);
 
-        let aUST_pub = g.modpow(&a, &n);
+        let a_pub = g.modpow(&a, &n);
 
-        // === DEBUG (không lộ password) ===
+        // === DEBUG (no password leak) ===
         let pw_hash_prefix = &hex::encode(Sha256::digest(password.as_bytes()))[..16];
         eprintln!("[DBG-RUST] === SrpClient::new ===");
         eprintln!("[DBG-RUST] username = {}", username);
         eprintln!("[DBG-RUST] password_len = {}", password.len());
-        eprintln] password_sha256_prefix = {}", pw_hash_prefix);
+        eprintln!("[DBG-RUST] password_sha256_prefix = {}", pw_hash_prefix);
         eprintln!("[DBG-RUST] k        = {}", hex::encode(&k_bytes));
         eprintln!("[DBG-RUST] a        = {}", hex::encode(&a_bytes));
         eprintln!("[DBG-RUST] a_pub    = {}", hex::encode(pad_to_n(&a_pub)));
@@ -110,12 +110,12 @@ G        let mut rng = rand::thread_rng();
         let u = BigUint::from_bytes_be(&u_bytes);
         self.u = Some(u.clone());
 
-        // p = PBKDF2(SHA256(password), salt, iterations)  [giống encrypt_password]
+        // p = PBKDF2(SHA256(password), salt, iterations)
         let p = encrypt_password(&self.password, salt, iterations, protocol);
 
-        // === x theo srp._pysrp gen_x ===
+        // === x per srp._pysrp gen_x ===
         // no_username_in_x = True  => username = b''
-        // inner = SHA256(b':' || p)
+        // inner = SHA256(b":" || p)
         // x = SHA256(salt || inner)
         let mut hasher = Sha256::new();
         hasher.update(b":");
@@ -141,7 +141,7 @@ G        let mut rng = rand::thread_rng();
         eprintln!("[DBG-RUST] x          = {}", hex::encode(x.to_bytes_be()));
         // === END DEBUG ===
 
-        // S = (B - k * g^x) ^ (a + u*x)  mod N
+        // S = (B - k * g^x) ^ (a + u*x) mod N
         let g_x = self.g.modpow(&x, &self.n);
         let k_g_x = (&self.k * &g_x) % &self.n;
 
@@ -167,15 +167,15 @@ G        let mut rng = rand::thread_rng();
         // === END DEBUG ===
 
         // M1 = SHA256( H(N) XOR H(g) || H(I) || salt || A || B || K )
-        // Chú ý: A và B KHÔNG được pad trong srp._pysrp calculate_M
+        // NOTE: A and B are NOT padded in srp._pysrp calculate_M
         let h_n = {
             let mut h = Sha256::new();
-            h.update(&pad_to_n(&self.n)); // N đã 256 byte, pad không đổi
+            h.update(&pad_to_n(&self.n));
             h.finalize()
         };
         let h_g = {
             let mut h = Sha256::new();
-            h.update(&pad_to_n(&self.g)); // g pad đến 256 byte
+            h.update(&pad_to_n(&self.g));
             h.finalize()
         };
         let h_xor: Vec<u8> = h_n.iter().zip(h_g.iter()).map(|(a, b)| a ^ b).collect();
@@ -186,7 +186,7 @@ G        let mut rng = rand::thread_rng();
             h.finalize()
         };
 
-        // ⚠️ A và B KHÔNG pad
+        // A and B WITHOUT padding
         let a_natural = self.a_pub.to_bytes_be();
         let b_natural = b_pub.to_bytes_be();
 
@@ -194,8 +194,8 @@ G        let mut rng = rand::thread_rng();
         hasher.update(&h_xor);
         hasher.update(&h_username);
         hasher.update(salt);
-        hasher.update(&a_natural);  // KHÔNG PAD
-        hasher.update(&b_natural);  // KHÔNG PAD
+        hasher.update(&a_natural); // NO pad
+        hasher.update(&b_natural); // NO pad
         hasher.update(&k_session);
         let m1 = hasher.finalize().to_vec();
 
@@ -215,13 +215,13 @@ G        let mut rng = rand::thread_rng();
         let m1 = self
             .m1
             .as_ref()
-            .ok_or_else(|| anyhow!("Chưa gọi process_challenge"))?;
+            .ok_or_else(|| anyhow!("process_challenge not called"))?;
         let k_session = self
             .session_key
             .as_ref()
-            .ok_or_else(|| anyhow!("Chưa có session key"))?;
+            .ok_or_else(|| anyhow!("session key not available"))?;
 
-        // H_AMK = SHA256(A || M1 || K) — A KHÔNG pad (theo calculate_H_AMK)
+        // H_AMK = SHA256(A || M1 || K) -- A NOT padded
         let a_natural = self.a_pub.to_bytes_be();
 
         let mut hasher = Sha256::new();
