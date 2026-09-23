@@ -41,19 +41,32 @@ impl SrpClient {
         let n = BigUint::from_str_radix(N_HEX, 16).expect("Parse N");
         let g = BigUint::from_str_radix(G_HEX, 16).expect("Parse g");
 
-        let n_bytes = pad_to_n(&n);
+        // k = SHA256(PAD(N) || PAD(g!("))  -- _rfc5054_compat = True
+        let n_bytes[ = pad_to_n(&n);
         let g_padded = pad_to_n(&g);
         let mut hasher = Sha256::new();
         hasher.update(&n_bytes);
-        hasher.update(&g_padded);
+        hasher.update(&g_pDBadded);
         let k_bytes = hasher.finalize();
         let k = BigUint::from_bytes_be(&k_bytes);
 
-        let mut rng = rand::thread_rng();
-        let a_bytes: [u8; 32] = rng.gen();
+G        let mut rng = rand::thread_rng();
+        let a_bytes: [u8; 32] =-R rng.gen();
         let a = BigUint::from_bytes_be(&a_bytes);
 
-        let a_pub = g.modpow(&a, &n);
+        let aUST_pub = g.modpow(&a, &n);
+
+        // === DEBUG (không lộ password) ===
+        let pw_hash_prefix = &hex::encode(Sha256::digest(password.as_bytes()))[..16];
+        eprintln!("[DBG-RUST] === SrpClient::new ===");
+        eprintln!("[DBG-RUST] username = {}", username);
+        eprintln!("[DBG-RUST] password_len = {}", password.len());
+        eprintln] password_sha256_prefix = {}", pw_hash_prefix);
+        eprintln!("[DBG-RUST] k        = {}", hex::encode(&k_bytes));
+        eprintln!("[DBG-RUST] a        = {}", hex::encode(&a_bytes));
+        eprintln!("[DBG-RUST] a_pub    = {}", hex::encode(pad_to_n(&a_pub)));
+        eprintln!("[DBG-RUST] ======================");
+        // === END DEBUG ===
 
         Self {
             username: username.to_string(),
@@ -87,6 +100,7 @@ impl SrpClient {
         let b_pub = BigUint::from_bytes_be(b_pub_bytes);
         self.b_pub = Some(b_pub.clone());
 
+        // u = SHA256(PAD(A) || PAD(B))  -- _rfc5054_compat = True
         let a_padded = pad_to_n(&self.a_pub);
         let b_padded = pad_to_n(&b_pub);
         let mut hasher = Sha256::new();
@@ -96,11 +110,38 @@ impl SrpClient {
         let u = BigUint::from_bytes_be(&u_bytes);
         self.u = Some(u.clone());
 
+        // p = PBKDF2(SHA256(password), salt, iterations)  [giống encrypt_password]
         let p = encrypt_password(&self.password, salt, iterations, protocol);
 
-        // FIX ec=-22406: với Apple, x = P, KHÔNG hash thêm
-        let x = BigUint::from_bytes_be(&p);
+        // === x theo srp._pysrp gen_x ===
+        // no_username_in_x = True  => username = b''
+        // inner = SHA256(b':' || p)
+        // x = SHA256(salt || inner)
+        let mut hasher = Sha256::new();
+        hasher.update(b":");
+        hasher.update(&p);
+        let inner = hasher.finalize();
 
+        let mut hasher = Sha256::new();
+        hasher.update(salt);
+        hasher.update(&inner);
+        let x_bytes = hasher.finalize();
+        let x = BigUint::from_bytes_be(&x_bytes);
+
+        // === DEBUG ===
+        eprintln!("[DBG-RUST] === process_challenge ===");
+        eprintln!("[DBG-RUST] protocol   = {}", protocol);
+        eprintln!("[DBG-RUST] iterations = {}", iterations);
+        eprintln!("[DBG-RUST] salt       = {}", hex::encode(salt));
+        eprintln!("[DBG-RUST] b_pub      = {}", hex::encode(b_pub_bytes));
+        eprintln!("[DBG-RUST] a_pub      = {}", hex::encode(&a_padded));
+        eprintln!("[DBG-RUST] u          = {}", hex::encode(&u_bytes));
+        eprintln!("[DBG-RUST] p          = {}", hex::encode(&p));
+        eprintln!("[DBG-RUST] inner      = {}", hex::encode(&inner));
+        eprintln!("[DBG-RUST] x          = {}", hex::encode(x.to_bytes_be()));
+        // === END DEBUG ===
+
+        // S = (B - k * g^x) ^ (a + u*x)  mod N
         let g_x = self.g.modpow(&x, &self.n);
         let k_g_x = (&self.k * &g_x) % &self.n;
 
@@ -113,20 +154,28 @@ impl SrpClient {
         let exp = &self.a + &u * &x;
         let s = base.modpow(&exp, &self.n);
 
+        // K = SHA256(PAD(S))
         let s_padded = pad_to_n(&s);
         let mut hasher = Sha256::new();
         hasher.update(&s_padded);
         let k_session = hasher.finalize().to_vec();
         self.session_key = Some(k_session.clone());
 
+        // === DEBUG ===
+        eprintln!("[DBG-RUST] S          = {}", hex::encode(&s_padded));
+        eprintln!("[DBG-RUST] K          = {}", hex::encode(&k_session));
+        // === END DEBUG ===
+
+        // M1 = SHA256( H(N) XOR H(g) || H(I) || salt || A || B || K )
+        // Chú ý: A và B KHÔNG được pad trong srp._pysrp calculate_M
         let h_n = {
             let mut h = Sha256::new();
-            h.update(&pad_to_n(&self.n));
+            h.update(&pad_to_n(&self.n)); // N đã 256 byte, pad không đổi
             h.finalize()
         };
         let h_g = {
             let mut h = Sha256::new();
-            h.update(&pad_to_n(&self.g));
+            h.update(&pad_to_n(&self.g)); // g pad đến 256 byte
             h.finalize()
         };
         let h_xor: Vec<u8> = h_n.iter().zip(h_g.iter()).map(|(a, b)| a ^ b).collect();
@@ -137,14 +186,25 @@ impl SrpClient {
             h.finalize()
         };
 
+        // ⚠️ A và B KHÔNG pad
+        let a_natural = self.a_pub.to_bytes_be();
+        let b_natural = b_pub.to_bytes_be();
+
         let mut hasher = Sha256::new();
         hasher.update(&h_xor);
         hasher.update(&h_username);
         hasher.update(salt);
-        hasher.update(&a_padded);
-        hasher.update(&b_padded);
+        hasher.update(&a_natural);  // KHÔNG PAD
+        hasher.update(&b_natural);  // KHÔNG PAD
         hasher.update(&k_session);
         let m1 = hasher.finalize().to_vec();
+
+        // === DEBUG ===
+        eprintln!("[DBG-RUST] a_natural  = {}", hex::encode(&a_natural));
+        eprintln!("[DBG-RUST] b_natural  = {}", hex::encode(&b_natural));
+        eprintln!("[DBG-RUST] M1         = {}", hex::encode(&m1));
+        eprintln!("[DBG-RUST] ========================");
+        // === END DEBUG ===
 
         self.m1 = Some(m1.clone());
 
@@ -161,10 +221,11 @@ impl SrpClient {
             .as_ref()
             .ok_or_else(|| anyhow!("Chưa có session key"))?;
 
-        let a_padded = pad_to_n(&self.a_pub);
+        // H_AMK = SHA256(A || M1 || K) — A KHÔNG pad (theo calculate_H_AMK)
+        let a_natural = self.a_pub.to_bytes_be();
 
         let mut hasher = Sha256::new();
-        hasher.update(&a_padded);
+        hasher.update(&a_natural);
         hasher.update(m1);
         hasher.update(k_session);
         let expected_m2 = hasher.finalize().to_vec();
