@@ -455,7 +455,7 @@ fn cmd_sign_and_install() -> Result<()> {
         let rt = tokio::runtime::Runtime::new()
             .context("Không tạo được tokio runtime")?;
 
-        let res = rt.blockất_on(async {
+        let res = rt.block_on(async {
             fortiva::install::install_app_bundle(
     signed_path.to_string_lossy().as_ref(),
     &udid,
