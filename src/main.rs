@@ -456,7 +456,10 @@ fn cmd_sign_and_install() -> Result<()> {
             .context("Không tạo được tokio runtime")?;
 
         let res = rt.blockất_on(async {
-            fortiva::install::install_app_bundle(&signed_path, &udid).await
+            fortiva::install::install_app_bundle(
+    signed_path.to_string_lossy().as_ref(),
+    &udid,
+).await
         });
 
         for i in 61..=100 {

@@ -1,9 +1,11 @@
-use anyhow::{Context, Result};
+// src/install/installer.rs
+use anyhow::{anyhow, Context, Result};
 use idevice::services::installation_proxy::InstallationProxyClient;
-use idevice::provider::IdeviceProvider; // Nếu crate idevice dùng Provider để connect
+use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
+use idevice::IdeviceService;
 use plist::{Dictionary, Value};
 
-/// Low-level install hàm gốc đã fix closure
+/// Low-level install
 pub async fn install_app(
     instproxy: &mut InstallationProxyClient,
     remote_dir: &str,
@@ -13,11 +15,11 @@ pub async fn install_app(
         .install_with_callback(
             remote_dir,
             Some(Value::Dictionary(options)),
-            |_| async {}, // FIX: Bỏ chữ `async`, dùng closure đồng bộ nhận progress!
+            |_| async {},
             (),
         )
-        .await?;
-
+        .await
+        .context("Install thất bại")?;
     Ok(())
 }
 
@@ -30,28 +32,51 @@ pub async fn upgrade_app(
         .install_with_callback(
             remote_dir,
             Some(Value::Dictionary(options)),
-            |_| async {}, // FIX: Bỏ `async` ở đây luôn
+            |_| async {},
             (),
         )
-        .await?;
-
+        .await
+        .context("Upgrade thất bại")?;
     Ok(())
 }
 
-/// High-level function để `main.rs` gọi trực tiếp qua app_path & udid
+/// High-level: nhận udid, tự kết nối usbmuxd + installation proxy
 pub async fn install_app_bundle(app_path: &str, udid: &str) -> Result<()> {
-    // 1. Khởi tạo connection tới thiết bị qua UDID
-    let provider = IdeviceProvider::new(udid)?;
-    let mut instproxy = InstallationProxyClient::connect(&provider)
+    // 1. Kết nối usbmuxd daemon
+    let mut usbmuxd = UsbmuxdConnection::default()
         .await
-        .context("Không thể kết nối tới InstallationProxyService")?;
+        .context("Không kết nối được usbmuxd")?;
 
-    // 2. Tạo options mặc định cho việc install
+    // 2. Lấy danh sách thiết bị
+    let devices = usbmuxd
+        .get_devices()
+        .await
+        .context("Không lấy được danh sách thiết bị")?;
+
+    // 3. Tìm device theo udid (udid là FIELD, không phải method)
+    let device = devices
+        .into_iter()
+        .find(|d| d.udid == udid)
+        .ok_or_else(|| anyhow!("Không tìm thấy thiết bị với UDID: {}", udid))?;
+
+    // 4. Tạo provider từ device
+    let mut provider = device.to_provider(
+        UsbmuxdAddr::from_env_var().unwrap_or_default(),
+        "fortiva",
+    );
+
+    // 5. Kết nối InstallationProxyClient qua trait IdeviceService
+    let mut instproxy = InstallationProxyClient::connect(&mut provider)
+        .await
+        .context("Không kết nối được InstallationProxy")?;
+
+    // 6. Options + install
     let mut options = Dictionary::new();
-    options.insert("PackageType".to_string(), Value::String("Developer".to_string()));
+    options.insert(
+        "PackageType".to_string(),
+        Value::String("Developer".to_string()),
+    );
 
-    // 3. Tiến hành install
     install_app(&mut instproxy, app_path, options).await?;
-
     Ok(())
 }

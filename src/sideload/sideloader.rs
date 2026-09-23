@@ -1,5 +1,5 @@
 // src/sideload/sideloader.rs
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 

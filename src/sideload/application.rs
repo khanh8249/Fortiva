@@ -1,7 +1,6 @@
 // src/sideload/application.rs
 use anyhow::{anyhow, Context, Result};
 use std::fs::{self, File};
-use std::io::Write;
 use std::path::PathBuf;
 use zip::ZipArchive;
 

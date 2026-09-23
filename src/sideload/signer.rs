@@ -2,7 +2,6 @@
 use anyhow::{Context, Result};
 use apple_codesign::cryptography::{InMemoryPrivateKey, PrivateKey};
 use apple_codesign::{SigningSettings, UnifiedSigner};
-use idevice::IdeviceService;  // <-- thêm dòng này
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;
@@ -16,13 +15,13 @@ pub fn sign_app(
 ) -> Result<()> {
     println!("[sign] Chuẩn bị SigningSettings...");
 
-    let mut settings = SigningSettings::default();
+    let _settings = SigningSettings::default();
 
     // Setup cert + chain
     let signing_key = build_signing_key(cert)?;
     let x509 = build_x509_cert(cert)?;
 
-    let mut settings = SigningSettings::default();
+    let _settings = SigningSettings::default();
     settings.set_signing_key(signing_key.as_key_info_signer(), x509);
     settings.chain_apple_certificates();
     settings.set_team_id_from_signing_certificate();
