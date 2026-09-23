@@ -15,8 +15,26 @@ pub fn encrypt_password(password: &str, salt: &[u8], iterations: u32, protocol: 
     if protocol == "s2k_fo" {
         p = hex::encode(p).into_bytes();
     }
+
+    // === DEBUG (che password) ===
+    let pw_hash_prefix = &hex::encode(Sha256::digest(password.as_bytes()))[..16];
+    eprintln!("[DBG-RUST] === encrypt_password ===");
+    eprintln!("[DBG-RUST] password_len   = {}", password.len());
+    eprintln!("[DBG-RUST] password_sha256_prefix = {}", pw_hash_prefix);
+    eprintln!("[DBG-RUST] protocol       = {}", protocol);
+    eprintln!("[DBG-RUST] iterations     = {}", iterations);
+    eprintln!("[DBG-RUST] salt           = {}", hex::encode(salt));
+    eprintln!("[DBG-RUST] p (pre-pbkdf2) = {}", hex::encode(&p));
+    // === END DEBUG ===
+
     let mut out = vec![0u8; 32];
     pbkdf2_hmac::<Sha256>(&p, salt, iterations, &mut out);
+
+    // === DEBUG ===
+    eprintln!("[DBG-RUST] p (post-pbkdf2)= {}", hex::encode(&out));
+    eprintln!("[DBG-RUST] ========================");
+    // === END DEBUG ===
+
     out
 }
 
