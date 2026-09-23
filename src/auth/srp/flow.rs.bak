@@ -51,6 +51,10 @@ impl SrpFlow {
         password: &str,
         depth: u32,
     ) -> Result<AuthResult> {
+        if depth >= 2 {
+            return Err(anyhow!("SRP retry qua nhieu lan (depth={})", depth));
+        }
+
         if depth > 0 {
             println!("[srp] Retry sau 2FA (depth={})...", depth);
         }
@@ -212,13 +216,9 @@ impl SrpFlow {
                     return Err(anyhow!("2FA that bai"));
                 }
 
-                if depth >= 1 {
-                    println!("[srp] Da retry 2FA roi, tiep tuc (khong retry nua)");
-                } else {
-                    println!("[srp] 2FA OK, retry login sau 3s...");
-                    std::thread::sleep(std::time::Duration::from_secs(3));
-                    return self.authenticate(gsa, twofa, apple_id, password, depth + 1);
-                }
+                println!("[srp] 2FA OK, retry login sau 3s...");
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                return self.authenticate(gsa, twofa, apple_id, password, depth + 1);
             }
         }
 
