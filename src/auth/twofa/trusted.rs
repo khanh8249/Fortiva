@@ -24,6 +24,12 @@ impl TrustedDeviceHandler {
 
         let mut headers = twofa.build_2fa_headers(anisette, dsid, idms_token, user_id, device_id)?;
 
+        eprintln!("[DBG-2FA-TRUSTED] === Request headers ===");
+        for (k, v) in headers.iter() {
+            eprintln!("[DBG-2FA-TRUSTED]   {}: {:?}", k, v);
+        }
+        eprintln!("[DBG-2FA-TRUSTED] ==========================");
+
         for attempt in 0..3 {
             match twofa
                 .client
@@ -38,6 +44,8 @@ impl TrustedDeviceHandler {
                         println!("[2fa] Push sent (HTTP {})", status);
                         break;
                     }
+                    let body = resp.text().unwrap_or_default();
+                    eprintln!("[DBG-2FA-BODY] HTTP {} body: {}", status, body);
                     println!("[2fa] HTTP {} (attempt {}/3)", status, attempt + 1);
                 }
                 Err(e) => {
