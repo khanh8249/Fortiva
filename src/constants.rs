@@ -1,7 +1,7 @@
 // src/constants.rs
 use std::path::PathBuf;
 
-pub const ANISETTE_URL: &str = "https://anisette-v3-server-sg29.onrender.com/";
+pub const ANISETTE_URL: &str = "https://anisette-v3-server-aexk.onrender.com";
 pub const ANISETTE_FALLBACK: &[&str] = &[];
 
 pub const USER_AGENT: &str = "akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0";
