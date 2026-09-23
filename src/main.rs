@@ -38,7 +38,7 @@ fn pause() {
     print!("\n  {} ", theme::muted("Nhấn Enter để tiếp tục..."));
     io::stdout().flush().ok();
     let mut buf = Vec::new();
-    let _ = io::stdin().read_until(b'\n', &mut buf);
+    let _ = io::stdin().lock().read_until(b'\n', &mut buf);
 }
 
 fn shellexpand(s: &str) -> String {
@@ -59,7 +59,7 @@ fn prompt_choice() -> String {
     print!("  {} Chọn (1-9 hoặc 0): ", theme::bold_primary("?"));
     io::stdout().flush().ok();
     let mut buf = Vec::new();
-    io::stdin().read_until(b'\n', &mut buf).ok();
+    io::stdin().lock().read_until(b'\n', &mut buf).ok();
     String::from_utf8_lossy(&buf).trim().to_string()
 }
 
@@ -455,13 +455,13 @@ fn cmd_sign_and_install() -> Result<()> {
         let rt = tokio::runtime::Runtime::new()
             .context("Không tạo được tokio runtime")?;
 
-        let res = rt.block_on(async {
+        let res = rt.blockất_on(async {
             fortiva::install::install_app_bundle(&signed_path, &udid).await
         });
 
         for i in 61..=100 {
             pb.set_position(i as u64);
-            if i == 90 { pb.set_message("Đang hoàn tất..."); }
+            if i == 90 { pb.set_message("Đang hoàn t..."); }
             thread::sleep(Duration::from_millis(15));
         }
 
@@ -536,7 +536,74 @@ fn cmd_setup_sidestore_pairing() -> Result<()> {
 }
 
 // ============================================================
-//  FEATURE 8: DEVICE INFO
+//  FEATURE 7: DEVICE MANAGER (LIST DEVICES)
+// ============================================================
+
+fn cmd_device_manager() -> Result<()> {
+    theme::clear_screen();
+    log::header("QUẢN LÝ THIẾT BỊ");
+
+    // Khởi tạo clients giống pattern của sign_with_progress
+    let mut auth = AnisetteClient::new(None);
+    auth.fetch(false).context("Anisette fetch thất bại")?;
+
+    let mut dev = fortiva::dev::DeveloperClient::new(
+        "fortiva".to_string(),
+        "fortiva".to_string(),
+    )?;
+
+    fortiva::tools::device_manager::list_devices(&mut dev, &mut auth)?;
+
+    Ok(())
+}
+
+// ============================================================
+//  FEATURE 8: REVOKE CERTIFICATES
+// ============================================================
+
+fn cmd_revoke_certs() -> Result<()> {
+    theme::clear_screen();
+    log::header("THU HỒI CHỨNG CHỈ");
+
+    // Khởi tạo clients
+    let mut auth = AnisetteClient::new(None);
+    auth.fetch(false).context("Anisette fetch thất bại")?;
+
+    let mut dev = fortiva::dev::DeveloperClient::new(
+        "fortiva".to_string(),
+        "fortiva".to_string(),
+    )?;
+
+    // 1. Liệt kê certs hiện có
+    let certs = fortiva::tools::cert_manager::list_certs(&mut dev, &mut auth)?;
+
+    if certs.is_empty() {
+        return Ok(());
+    }
+
+    // 2. Hỏi user nhập ID cần revoke
+    println!();
+    let cert_id = prompt_text("Nhập ID cert cần thu hồi (Enter = hủy):");
+
+    if cert_id.is_empty() {
+        log::info("Đã hủy.");
+        return Ok(());
+    }
+
+    // 3. Xác nhận
+    if !prompt_yn(&format!("Chắc chắn thu hồi cert {}? (y/n):", cert_id)) {
+        log::info("Đã hủy.");
+        return Ok(());
+    }
+
+    // 4. Revoke
+    fortiva::tools::cert_manager::revoke_cert(&mut dev, &mut auth, &cert_id)?;
+
+    Ok(())
+}
+
+// ============================================================
+//  FEATURE 9: DEVICE INFO
 // ============================================================
 
 fn cmd_device_info() -> Result<()> {
