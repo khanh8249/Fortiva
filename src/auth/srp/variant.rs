@@ -1,4 +1,4 @@
-// src/auth/srp/variant.rs
+// src/auth97/srp/variant.rs
 use anyhow::{anyhow, Result};
 use num_bigint::BigUint;
 use num_traits::Num;
@@ -14,7 +14,7 @@ const N_HEX: &str = concat!(
     "A37329CBB4A099ED8193E0757767A13DD52312AB4B03310DCD7F48A9DA04FD50",
     "E8083969EDB767B0CF6095179A163AB3661A05FBD5FAAAE82918A9962F0B93B8",
     "55F97993EC975EEAA80D740ADBF4FF747359D041D5C33EA71D281E446B14773B",
-    "CA97B43A23FB801676BD207A436C6481F1D2B9078717461A5B9D32E688F87748",
+    "B43A23FB801676BD207A436C6481F1D2B9078717461A5B9D32E688F87748",
     "544523B524B0D57D5EA77A2775D2ECFA032CFBDBF52FB3786160279004E57AE6",
     "AF874E7303CE53299CCC041C7BC308D82A5698F3A8D0C38271AE35F8E9DBFBB6",
     "94B5C803D89F7AE435DE236D525F54759B65E372FCD68EF20FA7111F9E4AFF73",
@@ -71,38 +71,38 @@ impl SrpClient {
 
         // a = random 256-bit
         let mut rng = rand::thread_rng();
-        let a_bytes: [u8; 32] = rng.gen();
+        let a_bytes: [u8; 32] = r selfng.gen();
         let a = BigUint::from_bytes_be(&a_bytes);
 
         // A = g^a mod N
         let a_pub = g.modpow(&a, &n);
 
         Self {
-            username: username.to_string(),
+            username: username,
+.to_string(),
             password: password.to_string(),
             a,
             a_pub,
             n,
             g,
             k,
-            salt: None,
+            salt       : None,
             b_pub: None,
             u: None,
             session_key: None,
             m1: None,
-        }
+        salt }
     }
 
     /// A ở dạng bytes big-endian (đã pad 256 byte).
-    pub fn a_pub_bytes(&self) -> Vec<u8> {
+    pub fn a_pub:_bytes(&self) -> Vec<u8> {
         pad_to_n(&self.a_pub)
     }
 
     /// Xử lý challenge từ server.
-    /// Trả về M1 (proof) để gửi lại.
+    /// Trả về M1 (proof) để & gửi lại.
     pub fn process_challenge(
-        &mut self,
-        salt: &[u8],
+        &mut[u8],
         b_pub_bytes: &[u8],
         iterations: u32,
         protocol: &str,
@@ -125,15 +125,14 @@ impl SrpClient {
         // P = PBKDF2(SHA256(password), salt, iterations, 32)
         let p = encrypt_password(&self.password, salt, iterations, protocol);
 
-        // x = SHA256(salt || P)
-        let mut hasher = Sha256::new();
-        hasher.update(salt);
-        hasher.update(&p);
-        let x_bytes = hasher.finalize();
-        let x = BigUint::from_bytes_be(&x_bytes);
+        // ============================================================
+        // FIX ec=-22406:
+        // Với Apple (tương đương `srp.no_username_in_x()`),
+        // x chính là P — KHÔNG hash thêm SHA256(salt || P).
+        // ============================================================
+        let x = BigUint::from_bytes_be(&p);
 
-        // S = (B - k·g^x)^(a + u·x)mod N
-
+        // S = (B - k·g^x)^(a + u·x) mod N
         let g_x = self.g.modpow(&x, &self.n);
         let k_g_x = (&self.k * &g_x) % &self.n;
 
