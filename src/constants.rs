@@ -6,8 +6,9 @@ pub const ANISETTE_FALLBACK: &[&str] = &[];
 
 pub const USER_AGENT: &str = "akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0";
 pub const XCODE_UA: &str = "akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0";
+// Khớp với Python reference (X-Mme-Client-Info)
 pub const DEFAULT_CLIENT_INFO: &str =
-    "<MacBookPro18,3> <Mac OS X;26.5.2> <com.apple.AuthKit/1 (com.apple.akd/1)>";
+    "<MacBookPro13,2> <macOS;13.1;22C65> <com.apple.AuthKit/1 (com.apple.akd/1.0)>";
 
 pub const GSA_URL: &str = "https://gsa.apple.com/grandslam/GsService2";
 pub const GSA_VALIDATE_URL: &str = "https://gsa.apple.com/grandslam/GsService2/validate";

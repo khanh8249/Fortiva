@@ -34,6 +34,17 @@ impl TwoFAHandler {
         }
     }
 
+    fn fix_client_info(ci: &str) -> String {
+        if ci.is_empty() {
+            return DEFAULT_CLIENT_INFO.to_string();
+        }
+        let mut fixed = ci.replace("com.apple.dt.Xcode", "com.apple.akd");
+        if fixed.contains("(com.apple.akd)") {
+            fixed = fixed.replace("(com.apple.akd)", "(com.apple.akd/1)");
+        }
+        fixed
+    }
+
     pub fn build_2fa_headers(
         &mut self,
         anisette: &mut AnisetteClient,
@@ -46,6 +57,19 @@ impl TwoFAHandler {
 
         let identity_token = general_purpose::STANDARD
             .encode(format!("{}:{}", dsid, idms_token).as_bytes());
+
+        // Fetch anisette trước để update client_info
+        let anisette_data = anisette.fetch(false)?;
+
+        if let Some(ci) = anisette_data.get("X-MMe-Client-Info") {
+            self.client_info = Self::fix_client_info(ci);
+        }
+        if self.client_info.contains("Xcode") {
+            self.client_info = Self::fix_client_info(&self.client_info);
+        }
+        if self.client_info.is_empty() {
+            self.client_info = DEFAULT_CLIENT_INFO.to_string();
+        }
 
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/x-xml-plist"));
         headers.insert(ACCEPT, HeaderValue::from_static("text/x-xml-plist"));
@@ -73,7 +97,6 @@ impl TwoFAHandler {
             }
         }
 
-        let anisette_data = anisette.fetch(false)?;
         for key in [
             "X-Apple-I-MD",
             "X-Apple-I-MD-M",
