@@ -19,9 +19,14 @@ pub struct GsaClient {
 
 impl GsaClient {
     pub fn new(anisette: AnisetteClient, user_id: String, device_id: String) -> Self {
+        // ============================================================
+        //  FIX 429: tắt connection pool → mỗi request mở connection mới
+        //  (giống requests.Session() + close() bên Python)
+        // ============================================================
         let client = Client::builder()
             .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(30))
+            .pool_max_idle_per_host(0)   // <-- DÒNG QUAN TRỌNG NHẤT
             .build()
             .expect("Failed to build reqwest client");
 
@@ -129,10 +134,16 @@ impl GsaClient {
 
                     let bytes = r.bytes()?;
 
-                    // DEBUG: in raw response
-                    eprintln!("[gsa] === RAW RESPONSE ({} bytes) ===", bytes.len());
-                    eprintln!("{}", String::from_utf8_lossy(&bytes[..bytes.len().min(800)]));
-                    eprintln!("[gsa] ================================");
+                    // DEBUG: chỉ in khi build dev, bỏ khi release
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("[gsa] === RAW RESPONSE ({} bytes) ===", bytes.len());
+                        eprintln!(
+                            "{}",
+                            String::from_utf8_lossy(&bytes[..bytes.len().min(800)])
+                        );
+                        eprintln!("[gsa] ================================");
+                    }
 
                     let content = ensure_plist_wrapper(&bytes);
 
