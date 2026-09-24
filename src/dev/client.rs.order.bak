@@ -165,9 +165,8 @@ impl DeveloperClient {
                         continue;
                     }
 
-                    let status = r.status();
                     let bytes = r.bytes()?;
-                    eprintln!("[DBG-TEAMS] status: {}", status);
+                    eprintln!("[DBG-TEAMS] status: {}", r.status());
                     eprintln!("[DBG-TEAMS] body len: {}", bytes.len());
                     eprintln!("[DBG-TEAMS] first 100 bytes: {:?}",
                         String::from_utf8_lossy(&bytes[..bytes.len().min(100)]));
