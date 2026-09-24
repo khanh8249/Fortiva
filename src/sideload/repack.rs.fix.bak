@@ -58,7 +58,7 @@ pub fn repack_ipa(bundle_dir: &Path) -> Result<PathBuf> {
         .with_context(|| format!("Tao file fail: {}", output_path.display()))?;
     let mut zip = zip::ZipWriter::new(file);
 
-    let options: FileOptions<()> = FileOptions::default()
+    let options = FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o755);
 

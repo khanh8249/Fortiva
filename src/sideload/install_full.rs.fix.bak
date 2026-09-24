@@ -161,18 +161,7 @@ pub fn install_app_full(
     // 12. Install (optional)
     if install {
         report(0.95, "Install to iPhone");
-        
-        // install_app_bundle la async — can block_on
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| anyhow!("Tokio runtime fail: {}", e))?;
-        
-        rt.block_on(async {
-            crate::install::install_app_bundle(
-                signed_ipa.to_str().unwrap_or(""),
-                &udid,
-            ).await
-        })?;
-        
+        crate::install::install_app_bundle(signed_ipa.to_str().unwrap_or(""), &udid)?;
         println!("     Installed!");
     }
 
