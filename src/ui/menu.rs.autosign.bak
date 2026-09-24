@@ -34,9 +34,9 @@ pub fn print_menu() {
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
     println!("{}│{}  [{}3{}]  📜  Test tạo CSR                       {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}4{}]  🚀  Sideload (Cydia Impactor)         {}│{}",
+    println!("{}│{}  [{}4{}]  📦  Sign IPA (chỉ ký)                  {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}5{}]  📦  Sign + Install (iLoader)          {}│{}",
+    println!("{}│{}  [{}5{}]  🚀  Sign + Auto Install                {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
     println!("{}│{}  [{}6{}]  🔗  Setup SideStore pairing               {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);

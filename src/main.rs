@@ -77,18 +77,6 @@ fn redraw_home() {
 //  STATUS
 // ============================================================
 
-fn get_account_status() -> String {
-    match Session::load() {
-        Ok(Some(s)) => {
-            if s.is_expired() {
-                theme::warning(&format!("🔑 {} (hết hạn)", s.apple_id))
-            } else {
-                theme::success(&format!("🔑 {} ({})", s.apple_id, s.time_left_str()))
-            }
-        }
-        _ => theme::muted("🔑 Chưa login"),
-    }
-}
 
 fn get_iphone_status() -> String {
     let usbmuxd_ok = std::process::Command::new("pgrep")
@@ -117,6 +105,75 @@ fn get_iphone_status() -> String {
 // ============================================================
 //  FEATURE 1: LOGIN
 // ============================================================
+
+
+// ============================================================
+//  SESSION MANAGEMENT (moi)
+// ============================================================
+
+use fortiva::dev::{is_session_expired, print_session_expired_help};
+
+/// Lay session, check tuoi. Neu cu → bao login lai.
+fn ensure_session() -> Result<Session> {
+    let session = Session::load()?
+        .ok_or_else(|| anyhow!("Chua login. Chay menu 1 de login"))?;
+
+    if session.is_expired() {
+        log::warn("Session het han (qua 7 ngay)");
+        print_session_expired_help();
+        return Err(anyhow!("Session expired"));
+    }
+
+    if session.needs_refresh() {
+        log::warn(&format!("Token cu ({} phut)", session.token_age_min()));
+        print_session_expired_help();
+        return Err(anyhow!("Token can refresh"));
+    }
+
+    Ok(session)
+}
+
+/// Wrapper: chay command + xu ly session expired.
+fn with_session<T, F>(f: F) -> Result<T>
+where
+    F: FnOnce(&Session) -> Result<T>,
+{
+    let session = ensure_session()?;
+
+    match f(&session) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            if is_session_expired(&e) {
+                print_session_expired_help();
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Account status cho UI.
+fn get_account_status() -> String {
+    match Session::load() {
+        Ok(Some(s)) => {
+            if s.is_expired() {
+                theme::warn(&format!("Account: {} (het han)", s.apple_id))
+            } else if s.needs_refresh() {
+                theme::warn(&format!(
+                    "Account: {} (token cu {} phut)",
+                    s.apple_id,
+                    s.token_age_min()
+                ))
+            } else {
+                theme::success(&format!(
+                    "Account: {} ({} phut)",
+                    s.apple_id,
+                    s.token_age_min()
+                ))
+            }
+        }
+        _ => theme::muted("Account: Chua login"),
+    }
+}
 
 fn cmd_login_apple_id() -> Result<()> {
     theme::clear_screen();
@@ -759,38 +816,6 @@ fn cmd_device_info() -> Result<()> {
 //  AUTO REFRESH SESSION (sau 3 phut)
 // ============================================================
 
-fn ensure_fresh_session() -> Result<Session> {
-    let session = Session::load()?
-        .ok_or_else(|| anyhow!("Chua login. Chay menu 1 truoc"))?;
-
-    if session.is_expired() {
-        log::warn("Session het han (qua 7 ngay)");
-        log::info("Vui long login lai (menu 1)");
-        return Err(anyhow!("Session expired"));
-    }
-
-    if session.needs_refresh() {
-        let age_min = session.token_age_min();
-        println!();
-        log::warn(&format!("Token cu ({} phut) — can refresh", age_min));
-        log::info("Vui long login lai de lay token moi:");
-        log::info("  1. Nhan Enter de ve menu");
-        log::info("  2. Chon menu [1] Login Apple ID");
-        log::info("  3. Nhap lai Apple ID + password");
-        log::info("  4. Quay lai menu nay");
-        println!();
-
-        if prompt_yn("Login lai bay gio? (y/n):") {
-            cmd_login_apple_id()?;
-            return Session::load()?
-                .ok_or_else(|| anyhow!("Login fail"));
-        } else {
-            return Err(anyhow!("Token cu — can login lai"));
-        }
-    }
-
-    Ok(session)
-}
 
 // ============================================================
 //  FEATURE 10: LOGOUT
@@ -827,6 +852,106 @@ fn cmd_logout() -> Result<()> {
 //  MAIN
 // ============================================================
 
+
+// ============================================================
+//  FEATURE: SIDELOAD (CYDIA IMPACTOR MODE)
+// ============================================================
+
+fn cmd_sideload_impactor() -> Result<()> {
+    theme::clear_screen();
+    log::header("SIDELOAD - CYDIA IMPACTOR MODE");
+
+    let ipa = prompt_text("IPA path:");
+    if ipa.is_empty() {
+        return Err(anyhow!("IPA path rong"));
+    }
+    let ipa_path = PathBuf::from(shellexpand(&ipa));
+    if !ipa_path.exists() {
+        return Err(anyhow!("IPA khong ton tai: {}", ipa_path.display()));
+    }
+
+    let apple_id = prompt_text("Apple ID:");
+    if apple_id.is_empty() {
+        return Err(anyhow!("Apple ID rong"));
+    }
+
+    let password = prompt_password("Password:");
+    if password.is_empty() {
+        return Err(anyhow!("Password rong"));
+    }
+
+    println!();
+    log::info("Bat dau sideload full auto...");
+    println!();
+
+    let signed_path = fortiva::sideload::auto::sideload_full(
+        &ipa_path,
+        &apple_id,
+        &password,
+    )?;
+
+    println!();
+    log::success(&format!("Signed: {}", signed_path.display()));
+
+    if prompt_yn("Install len iPhone? (y/n):") {
+        println!();
+        log::info("Dang cai len iPhone...");
+        let udid = fortiva::usb::first_udid()?;
+        crate::install::install_app_bundle(
+            signed_path.to_str().unwrap_or(""),
+            &udid,
+        )?;
+        log::success("Da cai thanh cong!");
+    }
+
+    Ok(())
+}
+
+// ============================================================
+//  FEATURE: SIGN + INSTALL (ILOADER MODE)
+// ============================================================
+
+fn cmd_sign_auto() -> Result<()> {
+    theme::clear_screen();
+    log::header("SIGN IPA - ILOADER MODE");
+
+    // Check session
+    let session = ensure_fresh_session()?;
+
+    println!("  Account: {}", theme::muted(&session.apple_id));
+    if let Some(tid) = &session.team_id {
+        println!("  Team:    {}", theme::muted(tid));
+    }
+    println!();
+
+    let ipa = prompt_text("IPA path:");
+    if ipa.is_empty() {
+        return Err(anyhow!("IPA path rong"));
+    }
+    let ipa_path = PathBuf::from(shellexpand(&ipa));
+    if !ipa_path.exists() {
+        return Err(anyhow!("IPA khong ton tai: {}", ipa_path.display()));
+    }
+
+    let signed = fortiva::sideload::auto::sign_ipa_auto(&ipa_path, &session)?;
+
+    println!();
+    log::success(&format!("Signed: {}", signed.display()));
+
+    if prompt_yn("Install len iPhone? (y/n):") {
+        println!();
+        log::info("Dang cai len iPhone...");
+        let udid = fortiva::usb::first_udid()?;
+        crate::install::install_app_bundle(
+            signed.to_str().unwrap_or(""),
+            &udid,
+        )?;
+        log::success("Da cai thanh cong!");
+    }
+
+    Ok(())
+}
+
 fn main() {
     theme::clear_screen();
 
@@ -842,8 +967,8 @@ fn main() {
             "1" => cmd_login_apple_id(),
             "2" => cmd_test_anisette(),
             "3" => cmd_test_csr(),
-            "4" => cmd_sign_ipa(),
-            "5" => cmd_sign_and_install(),
+            "4" => cmd_sideload_impactor(),
+            "5" => cmd_sign_auto(),
             "6" => cmd_setup_sidestore_pairing(),
             "7" => cmd_device_manager(),
             "8" => cmd_revoke_certs(),

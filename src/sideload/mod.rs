@@ -1,13 +1,14 @@
 // src/sideload/mod.rs
-mod application;
-mod bundle;
-mod cert_identity;
-mod entitlements;
-mod sideloader;
-mod signer;
+pub mod auto;
+pub mod application;
+pub mod bundle;
+pub mod cert_identity;
+pub mod entitlements;
+pub mod install_full;      // ← MỚI
+pub mod repack;            // ← MỚI
+pub mod signer;
+pub mod sideloader;
 
-pub use application::{Application, SpecialApp};
-pub use bundle::Bundle;
-pub use cert_identity::CertificateIdentity;
-pub use sideloader::Sideloader;
-pub use signer::sign_app;
+pub use auto::{sign_ipa_auto, sideload_full, sideload_smart};
+pub use install_full::{install_app_full, ProgressCallback};   // ← MỚI
+pub use repack::repack_ipa;                                    // ← MỚI
