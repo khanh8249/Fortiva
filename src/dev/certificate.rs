@@ -119,89 +119,11 @@ pub fn decode_cert_content(b64: &str) -> Result<Vec<u8>> {
 
 impl DeveloperClient {
     /// List tất cả cert (JSON API).
-    pub fn list_certificates(
-        &mut self,
-        auth: &mut AnisetteClient,
-    ) -> Result<Vec<serde_json::Value>> {
-        let team_id = self
-            .team_id
-            .as_ref()
-            .ok_or_else(|| anyhow!("Chua co team_id"))?
-            .clone();
-
-        let url = format!("{}/certificates", super::client::BASE_URL_V1);
-        let query = format!(
-            "teamId={}&filter[certificateType]=IOS_DEVELOPMENT",
-            team_id
-        );
-
-        let json = self.request_json(auth, "GET", &url, &query)?;
-
-        let data = json
-            .get("data")
-            .and_then(|d| d.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        Ok(data)
-    }
-
+    
     /// Lấy nội dung cert (base64) từ Apple, retry nhiều lần.
-    pub fn fetch_certificate_content(
-        &mut self,
-        auth: &mut AnisetteClient,
-        certificate_id: &str,
-    ) -> Result<Option<String>> {
-        let delays = [2u64, 4, 6, 8, 10];
-
-        for (attempt, delay) in delays.iter().enumerate() {
-            let certs = self.list_certificates(auth)?;
-
-            for cert in &certs {
-                let id = cert.get("id").and_then(|v| v.as_str());
-                if id == Some(certificate_id) {
-                    let content = cert
-                        .get("attributes")
-                        .and_then(|v| v.get("certificateContent"))
-                        .and_then(|v| v.as_str());
-                    if let Some(c) = content {
-                        return Ok(Some(c.to_string()));
-                    }
-                }
-            }
-
-            if attempt < delays.len() - 1 {
-                std::thread::sleep(std::time::Duration::from_secs(*delay));
-            }
-        }
-
-        Ok(None)
-    }
-
+    
     /// Thu hồi cert (JSON API DELETE).
-    pub fn revoke_certificate(
-        &mut self,
-        auth: &mut AnisetteClient,
-        certificate_id: &str,
-    ) -> Result<bool> {
-        let team_id = self
-            .team_id
-            .as_ref()
-            .ok_or_else(|| anyhow!("Chua co team_id"))?
-            .clone();
-
-        let url = format!(
-            "{}/certificates/{}",
-            super::client::BASE_URL_V1,
-            certificate_id
-        );
-        let query = format!("teamId={}", team_id);
-
-        self.request_json(auth, "DELETE", &url, &query)?;
-
-        Ok(true)
     }
-}
 
 // ============================================================
 //  ENSURE_CERTIFICATE
@@ -289,7 +211,7 @@ impl CertificateBundle {
         Ok(())
     }
 
-    pub fn load_from_id(dir: &std::path::extensionPath, cert_id: &str) -> Result<Option<Self>> {
+    pub fn load_from_id(dir: &std::path::Path, cert_id: &str) -> Result<Option<Self>> {
         let cert_path = dir.join(format!("{}.cert", cert_id));
         let key_path = dir.join(format!("{}.key", cert_id));
         let meta_path = dir.join(format!("{}.meta.json", cert_id));
@@ -298,10 +220,10 @@ impl CertificateBundle {
             return Ok(None);
         }
 
-        let cert_content_b64 = std::fs::read_to_string(&cert_path).().ok();
+        let cert_content_b64 = std::fs::read_to_string(&cert_path).ok();
         let private_key_pem = std::fs::read_to_string(&key_path)?;
         let machine_id = if meta_path.exists() {
-and            let meta: serde_json::Value = serde_json::from_str(
+        let meta: serde_json::Value = serde_json::from_str(
                 &std::fs::read_to_string(&_tmeta_path)?
             )?;
             meta.get("machine_id")

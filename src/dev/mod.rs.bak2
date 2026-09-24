@@ -1,6 +1,5 @@
-// src/dev/mod.rs
 pub mod teams;
-
+// src/dev/mod.rs
 mod app_groups;
 mod app_ids;
 mod certificate;
@@ -8,7 +7,6 @@ mod client;
 mod devices;
 mod json_api;
 mod plist_api;
-
 pub use app_groups::AppGroup;
 pub use app_ids::{AppId, Profile};
 pub use certificate::{decode_cert_content, CertificateBundle};
@@ -17,4 +15,4 @@ pub use client::{
     XCODE_VERSION,
 };
 pub use devices::Device;
-pub use teams::*;
+
