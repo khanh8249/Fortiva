@@ -272,6 +272,13 @@ impl SrpFlow {
         sk: &[u8],
         session_key: &[u8],
     ) -> Result<Option<String>> {
+        eprintln!("[DBG-APPTOKEN] === fetch_app_token ===");
+        eprintln!("[DBG-APPTOKEN] adsid: {}", &adsid[..adsid.len().min(20)]);
+        eprintln!("[DBG-APPTOKEN] c: {}", &c[..c.len().min(20)]);
+        eprintln!("[DBG-APPTOKEN] idms_token len: {}", idms_token.len());
+        eprintln!("[DBG-APPTOKEN] sk len: {}", sk.len());
+        eprintln!("[DBG-APPTOKEN] session_key len: {}", session_key.len());
+
         const APP: &str = APP_XCODE_AUTH;
 
         let mut mac = Hmac::<Sha256>::new_from_slice(sk).map_err(|e| anyhow!("HMAC init: {}", e))?;
@@ -289,14 +296,30 @@ impl SrpFlow {
         params.insert("o".into(), Value::String("apptokens".into()));
 
         println!("[srp] Gui apptokens request...");
-        let resp = gsa.request(params, 1)?;
+        let resp = gsa.request(params, 1)
+            .map_err(|e| {
+                eprintln!("[DBG-APPTOKEN] ❌ request failed: {}", e);
+                e
+            })?;
+        eprintln!("[DBG-APPTOKEN] ✅ response keys: {:?}", resp.keys().collect::<Vec<_>>());
 
         let et = resp
             .get("et")
             .and_then(|v| v.as_data())
-            .ok_or_else(|| anyhow!("Response thieu 'et'"))?;
+            .ok_or_else(|| {
+                eprintln!("[DBG-APPTOKEN] ❌ Response thiếu 'et'");
+                eprintln!("[DBG-APPTOKEN] Response đầy đủ: {:?}", resp);
+                anyhow!("Response thieu 'et'")
+            })?;
+        eprintln!("[DBG-APPTOKEN] ✅ et len: {}", et.len());
 
-        let decrypted = decrypt_gcm(session_key, et).context("Decrypt et GCM that bai")?;
+        let decrypted = decrypt_gcm(session_key, et)
+            .map_err(|e| {
+                eprintln!("[DBG-APPTOKEN] ❌ decrypt_gcm failed: {}", e);
+                e
+            })
+            .context("Decrypt et GCM that bai")?;
+        eprintln!("[DBG-APPTOKEN] ✅ decrypted len: {}", decrypted.len());
 
         let plist_val: Value = plist::from_bytes(&decrypted).context("Parse et plist that bai")?;
 
