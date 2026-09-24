@@ -1,6 +1,6 @@
 // src/auth/crypto/aes.rs
 use aes::Aes256;
-use aes_gcm::{Aes256Gcm, Key, Nonce, aead::{Aead, KeyInit, Payload}};
+use aes_gcm::{aead::{Aead, KeyInit, Payload}};
 use aes_gcm::aead::consts::U16;
 use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use pbkdf2::pbkdf2_hmac;
