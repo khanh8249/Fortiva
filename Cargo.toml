@@ -36,7 +36,7 @@ pbkdf2 = { version = "0.12", features = ["simple"] }
 aes = "0.8"
 aes-gcm = "0.10"
 cbc = { version = "0.1", features = ["alloc"] }
-rsa = { version = "0.9", features = ["pkcs8", "pkcs1"] }
+rsa = { version = "0.9", features = ["pkcs8"] }
 
 # OpenSSL (CSR + P12)
 openssl = { version = "0.10", features = ["vendored"] }
