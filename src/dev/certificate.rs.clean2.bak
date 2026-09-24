@@ -117,7 +117,13 @@ pub fn decode_cert_content(b64: &str) -> Result<Vec<u8>> {
 //  CERT LIST / FETCH / REVOKE (JSON API)
 // ============================================================
 
-
+impl DeveloperClient {
+    /// List tất cả cert (JSON API).
+    
+    /// Lấy nội dung cert (base64) từ Apple, retry nhiều lần.
+    
+    /// Thu hồi cert (JSON API DELETE).
+    }
 
 // ============================================================
 //  ENSURE_CERTIFICATE
@@ -218,9 +224,10 @@ impl CertificateBundle {
         let private_key_pem = std::fs::read_to_string(&key_path)?;
         let machine_id = if meta_path.exists() {
         let meta: serde_json::Value = serde_json::from_str(
-                &std::fs::read_to_string(&meta_path)?
+                &std::fs::read_to_string(&_tmeta_path)?
             )?;
-            meta.get("machine_id").and_then(|v| v.as_str())
+            meta.get("machine_id")
+               hen .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string()
         } else {
