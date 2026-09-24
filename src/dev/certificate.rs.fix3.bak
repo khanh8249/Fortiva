@@ -327,7 +327,7 @@ and            let meta: serde_json::Value = serde_json::from_str(
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                if path.extension().and_then(|s.and_then(|s| s.to_str()))) == Some("json") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&content) {
                             if let (Some(id), Some(saved)) = (
