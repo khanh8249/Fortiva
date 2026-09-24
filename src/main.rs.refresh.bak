@@ -185,8 +185,7 @@ fn cmd_login_apple_id() -> Result<()> {
                         team_id: None,
                         team_name: None,
                         created_at: fortiva::session::now(),
-                        expires_at: fortiva::session::now() + 7 * 24 * 3600,
-                        token_issued_at: fortiva::session::now(),   // ← MỚI
+                        expires_at: fortiva::session::now() + 7 * 24 * 3600,  // 7 ngày
                     };
 
                     // === FETCH TEAM ID TU APPLE ===
@@ -753,44 +752,6 @@ fn cmd_device_info() -> Result<()> {
 //  MAIN
 // ============================================================
 
-
-
-// ============================================================
-//  AUTO REFRESH SESSION (sau 3 phut)
-// ============================================================
-
-fn ensure_fresh_session() -> Result<Session> {
-    let session = Session::load()?
-        .ok_or_else(|| anyhow!("Chua login. Chay menu 1 truoc"))?;
-
-    if session.is_expired() {
-        log::warn("Session het han (qua 7 ngay)");
-        log::info("Vui long login lai (menu 1)");
-        return Err(anyhow!("Session expired"));
-    }
-
-    if session.needs_refresh() {
-        let age_min = session.token_age_min();
-        println!();
-        log::warn(&format!("Token cu ({} phut) — can refresh", age_min));
-        log::info("Vui long login lai de lay token moi:");
-        log::info("  1. Nhan Enter de ve menu");
-        log::info("  2. Chon menu [1] Login Apple ID");
-        log::info("  3. Nhap lai Apple ID + password");
-        log::info("  4. Quay lai menu nay");
-        println!();
-
-        if prompt_yn("Login lai bay gio? (y/n):") {
-            cmd_login_apple_id()?;
-            return Session::load()?
-                .ok_or_else(|| anyhow!("Login fail"));
-        } else {
-            return Err(anyhow!("Token cu — can login lai"));
-        }
-    }
-
-    Ok(session)
-}
 
 // ============================================================
 //  FEATURE 10: LOGOUT

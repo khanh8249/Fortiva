@@ -16,8 +16,6 @@ pub struct Session {
     pub team_name: Option<String>,
     pub created_at: u64,
     pub expires_at: u64,
-    #[serde(default)]
-    pub token_issued_at: u64,       // Thoi diem fetch token
 }
 
 impl Session {
@@ -67,27 +65,6 @@ impl Session {
     pub fn is_expired(&self) -> bool {
         let now = now();
         self.expires_at > 0 && now >= self.expires_at
-    }
-
-    /// Tuoi cua token tinh bang giay.
-    pub fn token_age_sec(&self) -> u64 {
-        let now = now();
-        let issued = if self.token_issued_at > 0 {
-            self.token_issued_at
-        } else {
-            self.created_at
-        };
-        now.saturating_sub(issued)
-    }
-
-    /// Tuoi token tinh bang phut.
-    pub fn token_age_min(&self) -> u64 {
-        self.token_age_sec() / 60
-    }
-
-    /// Can refresh khong (mac dinh > 3 phut = 180s).
-    pub fn needs_refresh(&self) -> bool {
-        self.token_age_sec() > 180
     }
 
     pub fn time_left_str(&self) -> String {
