@@ -313,7 +313,7 @@ impl SrpFlow {
             })?;
         eprintln!("[DBG-APPTOKEN] ✅ et len: {}", et.len());
 
-        let decrypted = decrypt_gcm(session_key, et)
+        let decrypted = decrypt_gcm(sk, et)
             .map_err(|e| {
                 eprintln!("[DBG-APPTOKEN] ❌ decrypt_gcm failed: {}", e);
                 e
