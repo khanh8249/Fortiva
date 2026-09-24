@@ -44,19 +44,11 @@ impl CertificateIdentity {
         let cert_content = bundle.cert_content_b64.as_ref()
             .ok_or_else(|| anyhow!("Bundle thieu cert_content_b64"))?;
 
-        // Apple co the tra ve 3 format: PEM, base64, hoac DER-b64
-        let cert = if cert_content.contains("-----BEGIN CERTIFICATE-----") {
-            openssl::x509::X509::from_pem(cert_content.as_bytes())
-                .context("Parse cert PEM that bai")?
-        } else {
-            // Thu base64 decode -> DER
-            let der = general_purpose::STANDARD
-                .decode(cert_content)
-                .context("Decode cert base64 that bai")?;
-            openssl::x509::X509::from_der(&der)
-                .context("Parse cert DER that bai")?
-        };
-
+        let der = general_purpose::STANDARD
+            .decode(cert_content)
+            .context("Decode cert base64 that bai")?;
+        let cert = openssl::x509::X509::from_der(&der)
+            .context("Parse cert DER that bai")?;
         let cert_pem = String::from_utf8(cert.to_pem()?)
             .context("Convert cert PEM that bai")?;
 

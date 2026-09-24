@@ -176,7 +176,7 @@ fn cmd_login_apple_id() -> Result<()> {
 
                 // === LƯU SESSION ===
                 if let Some(dsid) = result.dsid.clone() {
-                    let session = Session {
+                    let mut session = Session {
                         apple_id: apple_id.clone(),
                         dsid: dsid.clone(),
                         session_token: result.session_token.clone().unwrap_or_default(),
@@ -187,7 +187,45 @@ fn cmd_login_apple_id() -> Result<()> {
                         created_at: fortiva::session::now(),
                         expires_at: fortiva::session::now() + 7 * 24 * 3600,  // 7 ngày
                     };
-                    
+
+                    // === FETCH TEAM ID TU APPLE ===
+                    if let Some(token) = result.session_token.clone() {
+                        println!();
+                        log::info("Dang lay Team ID tu Apple...");
+
+                        if let Ok(mut dev) = fortiva::dev::DeveloperClient::new(
+                            dsid.clone(),
+                            token,
+                        ) {
+                            let mut ani = AnisetteClient::new(None);
+                            match dev.list_teams(&mut ani) {
+                                Ok(teams) if !teams.is_empty() => {
+                                    let team = &teams[0];
+                                    let tid = team
+                                        .get("teamId")
+                                        .or_else(|| team.get("teamID"))
+                                        .and_then(|v| v.as_string())
+                                        .map(|s| s.to_string());
+                                    let tname = team
+                                        .get("name")
+                                        .and_then(|v| v.as_string())
+                                        .map(|s| s.to_string());
+
+                                    if let Some(id) = tid {
+                                        log::success(&format!("Team ID: {}", id));
+                                        if let Some(n) = &tname {
+                                            log::info(&format!("Team name: {}", n));
+                                        }
+                                        session.team_id = Some(id);
+                                        session.team_name = tname;
+                                    }
+                                }
+                                Ok(_) => log::warn("Khong co team nao"),
+                                Err(e) => log::warn(&format!("Khong lay duoc team: {}", e)),
+                            }
+                        }
+                    }
+
                     match session.save() {
                         Ok(()) => {
                             log::success(&format!("✓ Đã lưu session cho {}", apple_id));

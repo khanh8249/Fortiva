@@ -345,11 +345,35 @@ impl SrpFlow {
 
 fn extract_string(dict: &Dictionary, keys: &[&str]) -> Option<String> {
     for k in keys {
-        if let Some(s) = dict.get(*k).and_then(|v| v.as_string()) {
-            return Some(s.to_string());
+        if let Some(v) = dict.get(*k) {
+            match v {
+                Value::String(s) => return Some(s.to_string()),
+                Value::Data(d) => {
+                    // Python plist co the tra bytes -> thu UTF-8, fallback base64
+                    if let Ok(s) = String::from_utf8(d.to_vec()) {
+                        return Some(s);
+                    }
+                    return Some(general_purpose::STANDARD.encode(d));
+                }
+                _ => {}
+            }
         }
     }
     None
+}
+
+/// Lay data linh hoat: Data hoac String (base64 hoac raw)
+fn extract_data_flexible(dict: &Dictionary, key: &str) -> Option<Vec<u8>> {
+    dict.get(key).and_then(|v| match v {
+        Value::Data(d) => Some(d.to_vec()),
+        Value::String(s) => {
+            general_purpose::STANDARD
+                .decode(s)
+                .ok()
+                .or_else(|| Some(s.as_bytes().to_vec()))
+        }
+        _ => None,
+    })
 }
 
 fn plist_integer(v: &Value) -> Option<i64> {
