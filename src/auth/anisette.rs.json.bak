@@ -50,23 +50,9 @@ impl AnisetteClient {
                 _ => continue,
             };
 
-            // Dung bytes thay vi json() de tranh InvalidUtf8AsciiStream
-            let bytes = match resp.bytes() {
-                Ok(b) => b,
-                Err(e) => {
-                    eprintln!("[anisette] read bytes fail: {}", e);
-                    continue;
-                }
-            };
-            
-            let data: HashMap<String, Value> = match serde_json::from_slice(&bytes) {
+            let data: HashMap<String, Value> = match resp.json() {
                 Ok(d) => d,
-                Err(e) => {
-                    eprintln!("[anisette] JSON parse fail: {}", e);
-                    eprintln!("[anisette] first 200 bytes: {:?}",
-                        String::from_utf8_lossy(&bytes[..bytes.len().min(200)]));
-                    continue;
-                }
+                Err(_) => continue,
             };
 
             if !data.contains_key("X-Apple-I-MD-M") {
