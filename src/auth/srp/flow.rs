@@ -169,6 +169,15 @@ impl SrpFlow {
         };
 
         println!("[srp] SPD co {} keys", spd_data.len());
+        
+        // DEBUG SPD keys
+        eprintln!("[DBG-SPD] adsid: {}", spd_data.get("adsid").is_some());
+        eprintln!("[DBG-SPD] c: {}", spd_data.get("c").is_some());
+        eprintln!("[DBG-SPD] sk: {}", spd_data.get("sk").is_some());
+        eprintln!("[DBG-SPD] GsIdmsToken: {}", spd_data.get("GsIdmsToken").is_some());
+        eprintln!("[DBG-SPD] idmsToken: {}", spd_data.get("idmsToken").is_some());
+        let all_keys: Vec<&str> = spd_data.keys().map(|k| k.as_str()).collect();
+        eprintln!("[DBG-SPD] All keys ({}): {:?}", all_keys.len(), all_keys);
 
         if let Some(au) = &auth_type {
             if au == "trustedDeviceSecondaryAuth" || au == "secondaryAuth" || au == "smsSecondaryAuth" {
