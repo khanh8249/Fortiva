@@ -84,11 +84,6 @@ pub fn install_app_full(
     app.update_bundle_id(&original_id, &new_id)?;
     println!("     New ID: {}", new_id);
 
-    // ⚠️ GHI Info.plist xuong disk (KHONG CHI DOI TRONG RAM!)
-    println!("     Ghi Info.plist (main + ext + framework)...");
-    app.write_all_info()?;
-    println!("     ✅ Info.plist OK");
-
     // 5. Register App IDs
     report(0.35, "Register App IDs");
     let main_app_id = dev.ensure_app_id(&mut anisette, &new_id, &main_name)?;

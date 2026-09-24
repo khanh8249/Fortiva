@@ -52,26 +52,6 @@ pub fn extract_entitlements(
         );
     }
 
-    // ⚠️ FIX: Override application-identifier = TEAMID.bundle_id_moi
-    // Lay tu chinh entitlements (Apple da set dung trong profile)
-    // NHUNG: Neu bundle_id patch khac -> can override
-    if let Some(Value::String(app_id)) = entitlements.get("application-identifier") {
-        println!("[entitlements] application-identifier: {}", app_id);
-    }
-    
-    // Override keychain-access-groups[0] = application-identifier
-    if let Some(Value::String(app_id)) = entitlements.get("application-identifier").cloned() {
-        if let Some(Value::Array(groups)) = entitlements.get_mut("keychain-access-groups") {
-            if groups.is_empty() {
-                groups.push(Value::String(app_id.clone()));
-            } else if matches!(groups[0], Value::String(ref s) if s == "*" || s.ends_with(".*")) {
-                // Giu wildcard, khong override
-            } else {
-                // Giu nguyen
-            }
-        }
-    }
-
     Ok(entitlements)
 }
 

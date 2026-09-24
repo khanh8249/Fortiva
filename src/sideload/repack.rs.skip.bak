@@ -72,12 +72,6 @@ pub fn repack_ipa(bundle_dir: &Path) -> Result<PathBuf> {
         .filter_map(|e| e.ok())
     {
         let path = entry.path();
-
-        // SKIP output file (khong zip chinh no)
-        if path == output_path {
-            continue;
-        }
-
         let rel_path = path.strip_prefix(root)
             .context("Strip prefix fail")?;
 

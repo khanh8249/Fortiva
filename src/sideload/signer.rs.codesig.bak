@@ -92,10 +92,7 @@ pub fn sign_app(
         println!("[sign] Đã set entitlements cho {} extension", ext_count);
     }
 
-    // 4. Xóa _CodeSignature CŨ (nếu có) — tránh hash mismatch
-    cleanup_code_signatures(app)?;
-
-    // 5. Verify profiles nhúng (bắt buộc trước khi sign)
+    // 4. Verify profiles nhúng (bắt buộc trước khi sign)
     verify_profiles(app)?;
 
     // 5. SIGN — dùng sign_bundle() với temp output
@@ -202,43 +199,4 @@ fn extract_team_id(cert: &CertificateIdentity) -> String {
         return cert.machine_id.clone();
     }
     "UNKNOWN".to_string()
-}
-
-// ============================================================
-//  CLEANUP _CodeSignature CŨ
-// ============================================================
-
-/// Xóa tất cả _CodeSignature cũ trong bundle tree.
-/// Tránh hash mismatch khi sign.
-fn cleanup_code_signatures(app: &Application) -> Result<()> {
-    let mut count = 0;
-
-    // 1. Main bundle
-    let main_cs = app.bundle.bundle_dir.join("_CodeSignature");
-    if main_cs.exists() {
-        std::fs::remove_dir_all(&main_cs)
-            .with_context(|| format!("Xóa main _CodeSignature fail: {}", main_cs.display()))?;
-        println!("[sign] 🗑️  Xóa main _CodeSignature");
-        count += 1;
-    }
-
-    // 2. Extensions
-    for ext in app.bundle.app_extensions() {
-        let ext_cs = ext.bundle_dir.join("_CodeSignature");
-        if ext_cs.exists() {
-            std::fs::remove_dir_all(&ext_cs)
-                .with_context(|| format!("Xóa ext _CodeSignature fail: {}", ext_cs.display()))?;
-            let name = ext.bundle_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("?");
-            println!("[sign] 🗑️  Xóa ext _CodeSignature: {}", name);
-            count += 1;
-        }
-    }
-
-    // 3. Frameworks (nếu có)
-    // (Đã bao gồm trong collect_bundles_sorted nếu cần)
-
-    println!("[sign] Đã xóa {} _CodeSignature cũ", count);
-    Ok(())
 }
