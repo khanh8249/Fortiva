@@ -98,23 +98,7 @@ pub async fn install_app_bundle(app_path: &str, udid: &str) -> Result<()> {
     println!("[install] UDID:  {}", udid);
     println!();
 
-    // 1. Neu la .app directory -> repack IPA truoc
-    let ipa_path_buf: std::path::PathBuf = if app_path.ends_with(".app")
-        && std::path::Path::new(app_path).is_dir()
-    {
-        println!("[install] Path là .app directory, repack IPA...");
-        crate::sideload::repack::repack_ipa(std::path::Path::new(app_path))
-            .context("Repack IPA fail")?
-    } else {
-        std::path::PathBuf::from(app_path)
-    };
-
-    let app_path_owned = ipa_path_buf.to_string_lossy().to_string();
-    let app_path = app_path_owned.as_str();
-
-    println!("[install] IPA file: {}", app_path);
-
-    // 2. Check file
+    // 1. Check file local
     let local_path = Path::new(app_path);
     if !local_path.exists() {
         return Err(anyhow!("IPA không tồn tại: {}", app_path));
