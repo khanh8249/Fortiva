@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Context, Result};
 use idevice::services::afc::AfcClient;
 use idevice::services::afc::opcode::AfcFopenMode;
-use idevice::services::lockdown::LockdownClient;
+use idevice::services::lockdown::LockdowndClient;
 use idevice::services::installation_proxy::InstallationProxyClient;
 use idevice::provider::IdeviceProvider;
 use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
@@ -62,7 +62,7 @@ pub async fn upgrade_app(
 async fn connect_afc_normal(
     provider: &mut dyn IdeviceProvider,
 ) -> Result<AfcClient> {
-    let mut lockdown = LockdownClient::connect(provider)
+    let mut lockdown = LockdowndClient::connect(provider)
         .await
         .context("Lockdown connect fail")?;
 
