@@ -897,15 +897,10 @@ fn cmd_sideload_impactor() -> Result<()> {
         println!();
         log::info("Dang cai len iPhone...");
         let udid = fortiva::usb::first_udid()?;
-        // install_app_bundle la async — can block_on
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| anyhow!("Tokio runtime fail: {}", e))?;
-        rt.block_on(async {
-            fortiva::install::install_app_bundle(
-                signed_path.to_str().unwrap_or(""),
-                &udid,
-            ).await
-        })?;
+        fortiva::install::install_app_bundle(
+            signed_path.to_str().unwrap_or(""),
+            &udid,
+        )?;
         log::success("Da cai thanh cong!");
     }
 
@@ -947,15 +942,10 @@ fn cmd_sign_auto() -> Result<()> {
         println!();
         log::info("Dang cai len iPhone...");
         let udid = fortiva::usb::first_udid()?;
-        // install_app_bundle la async — can block_on
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| anyhow!("Tokio runtime fail: {}", e))?;
-        rt.block_on(async {
-            fortiva::install::install_app_bundle(
-                signed.to_str().unwrap_or(""),
-                &udid,
-            ).await
-        })?;
+        fortiva::install::install_app_bundle(
+            signed.to_str().unwrap_or(""),
+            &udid,
+        )?;
         log::success("Da cai thanh cong!");
     }
 
