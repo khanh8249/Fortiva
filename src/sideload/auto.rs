@@ -42,7 +42,7 @@ pub fn sign_ipa_auto(
 
     // 3. Ensure certificate
     let cert_bundle = dev.ensure_certificate(&mut anisette, "fortiva")?;
-    let cert = CertificateIdentity::fromcert_bundle)?;
+    let cert = CertificateIdentity::from_bundle(&cert_bundle)?;
     println!("[2/8] Cert: {}", cert.serial_number());
 
     // 4. Parse IPA
