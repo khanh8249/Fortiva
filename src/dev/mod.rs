@@ -21,4 +21,3 @@ pub use client::{
 pub use devices::Device;
 pub use max_certs::{handle_max_certs, MaxCertsBehavior};        // ← MỚI
 pub use session_helper::{is_session_expired, print_session_expired_help};
-pub use teams::*;

@@ -156,9 +156,9 @@ fn get_account_status() -> String {
     match Session::load() {
         Ok(Some(s)) => {
             if s.is_expired() {
-                theme::warning(&format!("Account: {} (het han)", s.apple_id))
+                theme::warn(&format!("Account: {} (het han)", s.apple_id))
             } else if s.needs_refresh() {
-                theme::warning(&format!(
+                theme::warn(&format!(
                     "Account: {} (token cu {} phut)",
                     s.apple_id,
                     s.token_age_min()
@@ -493,7 +493,7 @@ fn sign_with_progress(
     let work_dir = std::env::temp_dir().join("fortiva");
     std::fs::create_dir_all(&work_dir)?;
 
-    let mut sideloader = fortiva::sideload::sideloader::Sideloader::new(dev, anisette, work_dir);
+    let mut sideloader = fortiva::sideload::Sideloader::new(dev, anisette, work_dir);
 
     pb.set_position(30);
     pb.set_message("Ký IPA (30s-2 phút)...");
@@ -897,7 +897,7 @@ fn cmd_sideload_impactor() -> Result<()> {
         println!();
         log::info("Dang cai len iPhone...");
         let udid = fortiva::usb::first_udid()?;
-        fortiva::install::install_app_bundle(
+        crate::install::install_app_bundle(
             signed_path.to_str().unwrap_or(""),
             &udid,
         )?;
@@ -916,7 +916,7 @@ fn cmd_sign_auto() -> Result<()> {
     log::header("SIGN IPA - ILOADER MODE");
 
     // Check session
-    let session = ensure_session()?;
+    let session = ensure_fresh_session()?;
 
     println!("  Account: {}", theme::muted(&session.apple_id));
     if let Some(tid) = &session.team_id {
@@ -942,7 +942,7 @@ fn cmd_sign_auto() -> Result<()> {
         println!();
         log::info("Dang cai len iPhone...");
         let udid = fortiva::usb::first_udid()?;
-        fortiva::install::install_app_bundle(
+        crate::install::install_app_bundle(
             signed.to_str().unwrap_or(""),
             &udid,
         )?;

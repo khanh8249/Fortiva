@@ -12,4 +12,3 @@ pub mod sideloader;
 pub use auto::{sign_ipa_auto, sideload_full};
 pub use install_full::{install_app_full, ProgressCallback};   // ← MỚI
 pub use repack::repack_ipa;                                    // ← MỚI
-pub use sideloader::Sideloader;
