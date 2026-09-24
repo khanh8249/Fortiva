@@ -69,7 +69,7 @@ impl TrustedDeviceHandler {
                     let status = resp.status();
                     let version = resp.version();
                     let url = resp.url().clone();
-                    let _resp_headers = resp.headers().clone();
+                    let resp_headers = resp.headers().clone();
                     let body = resp.bytes()?;
 
                     eprintln!("[DBG-RUST-2FA] status={}", status);
@@ -120,7 +120,7 @@ impl TrustedDeviceHandler {
                     let status = resp.status();
                     let version = resp.version();
                     let url = resp.url().clone();
-                    let _resp_headers = resp.headers().clone();
+                    let resp_headers = resp.headers().clone();
                     let body = resp.bytes()?;
 
                     eprintln!("[DBG-RUST-2FA] status={}", status);
@@ -192,7 +192,7 @@ impl TrustedDeviceHandler {
         let status = resp.status();
         let version = resp.version();
         let url = resp.url().clone();
-        let _resp_headers = resp.headers().clone();
+        let resp_headers = resp.headers().clone();
         let body = resp.bytes()?;
 
         eprintln!("[DBG-RUST-2FA] status={}", status);

@@ -81,7 +81,7 @@ fn get_account_status() -> String {
     match Session::load() {
         Ok(Some(s)) => {
             if s.is_expired() {
-                theme::warn(&format!("🔑 {} (hết hạn)", s.apple_id))
+                theme::warning(&format!("🔑 {} (hết hạn)", s.apple_id))
             } else {
                 theme::success(&format!("🔑 {} ({})", s.apple_id, s.time_left_str()))
             }
