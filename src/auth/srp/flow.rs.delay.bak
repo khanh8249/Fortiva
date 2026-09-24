@@ -233,10 +233,6 @@ impl SrpFlow {
 
         let dsid = extract_string(&spd_data, &["adsid", "dsid"]);
 
-        // Delay truoc apptokens tranh Apple flag
-        println!("[srp] Cho 4s truoc apptokens...");
-        std::thread::sleep(std::time::Duration::from_secs(4));
-
         let app_token = if let (Some(adsid), Some(c2), Some(sk), Some(idms)) = (
             extract_string(&spd_data, &["adsid"]),
             spd_data.get("c").cloned(),
