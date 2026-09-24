@@ -217,15 +217,15 @@ impl CertificateBundle {
         let cert_content_b64 = std::fs::read_to_string(&cert_path).ok();
         let private_key_pem = std::fs::read_to_string(&key_path)?;
         let machine_id = if meta_path.exists() {
-            let meta_str = std::fs::read_to_string(&meta_path)?;
-            let meta: serde_json::Value = serde_json::from_str(&meta_str)?;
-            meta.get("machine_id")
-                .and_then(|v| v.as_str())
+        let meta: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(&meta_path)?
+            )?;
+            meta.get("machine_id").and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string()
         } else {
             String::new()
-        };
+       }
 
         Ok(Some(CertificateBundle {
             certificate_id: Some(cert_id.to_string()),

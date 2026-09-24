@@ -17,4 +17,3 @@ pub use client::{
     XCODE_VERSION,
 };
 pub use devices::Device;
-pub use teams::*;
