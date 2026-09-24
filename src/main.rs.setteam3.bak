@@ -419,19 +419,10 @@ fn sign_with_progress(
     pb.set_message("Khởi tạo sideloader...");
 
     let anisette = AnisetteClient::new(None);
-    // Load session de dung token that
-    let session = Session::load()?
-        .ok_or_else(|| anyhow!("Chua login. Chay menu 1 truoc"))?;
-    if session.is_expired() {
-        return Err(anyhow!("Session het han. Login lai"));
-    }
-    let mut dev = fortiva::dev::DeveloperClient::new(
-        session.dsid.clone(),
-        session.session_token.clone(),
+    let dev = fortiva::dev::DeveloperClient::new(
+        "fortiva".to_string(),
+        "fortiva".to_string(),
     )?;
-    if let Some(tid) = &session.team_id {
-        dev.set_team(tid.clone());
-    }
     let work_dir = std::env::temp_dir().join("fortiva");
     std::fs::create_dir_all(&work_dir)?;
 
@@ -639,18 +630,10 @@ fn cmd_device_manager() -> Result<()> {
     let mut auth = AnisetteClient::new(None);
     auth.fetch(false).context("Anisette fetch thất bại")?;
 
-    let session = Session::load()?
-        .ok_or_else(|| anyhow!("Chua login. Chay menu 1 truoc"))?;
-    if session.is_expired() {
-        return Err(anyhow!("Session het han. Login lai"));
-    }
     let mut dev = fortiva::dev::DeveloperClient::new(
-        session.dsid.clone(),
-        session.session_token.clone(),
+        "fortiva".to_string(),
+        "fortiva".to_string(),
     )?;
-    if let Some(tid) = &session.team_id {
-        dev.set_team(tid.clone());
-    }
 
     fortiva::tools::device_manager::list_devices(&mut dev, &mut auth)?;
 
@@ -669,18 +652,10 @@ fn cmd_revoke_certs() -> Result<()> {
     let mut auth = AnisetteClient::new(None);
     auth.fetch(false).context("Anisette fetch thất bại")?;
 
-    let session = Session::load()?
-        .ok_or_else(|| anyhow!("Chua login. Chay menu 1 truoc"))?;
-    if session.is_expired() {
-        return Err(anyhow!("Session het han. Login lai"));
-    }
     let mut dev = fortiva::dev::DeveloperClient::new(
-        session.dsid.clone(),
-        session.session_token.clone(),
+        "fortiva".to_string(),
+        "fortiva".to_string(),
     )?;
-    if let Some(tid) = &session.team_id {
-        dev.set_team(tid.clone());
-    }
 
     // 1. Liệt kê certs hiện có
     let certs = fortiva::tools::cert_manager::list_certs(&mut dev, &mut auth)?;
