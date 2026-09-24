@@ -195,10 +195,6 @@ fn cmd_login_apple_id() -> Result<()> {
 
                         if let Ok(mut dev) = fortiva::dev::DeveloperClient::new(
                             dsid.clone(),
-
-    if let Some(tid) = &session.team_id {
-        dev.set_team(tid.clone());
-    }
                             token,
                         ) {
                             let mut ani = AnisetteClient::new(None);
@@ -423,12 +419,8 @@ fn sign_with_progress(
     pb.set_message("Khởi tạo sideloader...");
 
     let anisette = AnisetteClient::new(None);
-    let mut dev = fortiva::dev::DeveloperClient::new(
+    let dev = fortiva::dev::DeveloperClient::new(
         "fortiva".to_string(),
-
-    if let Some(tid) = &session.team_id {
-        dev.set_team(tid.clone());
-    }
         "fortiva".to_string(),
     )?;
     let work_dir = std::env::temp_dir().join("fortiva");
@@ -640,10 +632,6 @@ fn cmd_device_manager() -> Result<()> {
 
     let mut dev = fortiva::dev::DeveloperClient::new(
         "fortiva".to_string(),
-
-    if let Some(tid) = &session.team_id {
-        dev.set_team(tid.clone());
-    }
         "fortiva".to_string(),
     )?;
 
@@ -666,10 +654,6 @@ fn cmd_revoke_certs() -> Result<()> {
 
     let mut dev = fortiva::dev::DeveloperClient::new(
         "fortiva".to_string(),
-
-    if let Some(tid) = &session.team_id {
-        dev.set_team(tid.clone());
-    }
         "fortiva".to_string(),
     )?;
 
