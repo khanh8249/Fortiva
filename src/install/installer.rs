@@ -2,8 +2,11 @@
 use anyhow::{anyhow, Context, Result};
 use idevice::services::afc::AfcClient;
 use idevice::services::afc::opcode::AfcFopenMode;
+use idevice::services::lockdown::LockdowndClient;
 use idevice::services::installation_proxy::InstallationProxyClient;
+use idevice::provider::IdeviceProvider;
 use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
+use idevice::obf;
 use idevice::IdeviceService;
 use plist::{Dictionary, Value};
 use std::path::Path;
@@ -50,6 +53,44 @@ pub async fn upgrade_app(
 //  HIGH-LEVEL: upload IPA + install
 // ============================================================
 
+
+// ============================================================
+//  AFC CONNECT — com.apple.afc (khong jailbreak)
+// ============================================================
+
+/// Connect AFC thuong. Giong new_afc2 nhung dung com.apple.afc.
+async fn connect_afc_normal(
+    provider: &mut dyn IdeviceProvider,
+) -> Result<AfcClient> {
+    let mut lockdown = LockdowndClient::connect(provider)
+        .await
+        .context("Lockdown connect fail")?;
+
+    let legacy = lockdown
+        .start_session(&provider.get_pairing_file().await?)
+        .await
+        .context("Lockdown session fail")?;
+
+    let (port, ssl) = lockdown
+        .start_service(obf!("com.apple.afc"))
+        .await
+        .context("AFC service start fail")?;
+
+    let mut idevice = provider
+        .connect(port)
+        .await
+        .context("Connect AFC port fail")?;
+
+    if ssl {
+        idevice
+            .start_session(&provider.get_pairing_file().await?, legacy)
+            .await
+            .context("AFC session fail")?;
+    }
+
+    Ok(AfcClient::new(idevice))
+}
+
 pub async fn install_app_bundle(app_path: &str, udid: &str) -> Result<()> {
     println!();
     println!("[install] === INSTALL APP BUNDLE ===");
@@ -89,7 +130,7 @@ pub async fn install_app_bundle(app_path: &str, udid: &str) -> Result<()> {
 
     // 5. Connect AFC
     println!("[install] Connect AFC...");
-    let mut afc = AfcClient::new_afc2(&provider)
+    let mut afc = connect_afc_normal(&mut provider)
         .await
         .context("Không connect được AFC")?;
     println!("[install] AFC connected");

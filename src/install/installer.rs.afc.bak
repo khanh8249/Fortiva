@@ -1,8 +1,6 @@
 // src/install/installer.rs
 use anyhow::{anyhow, Context, Result};
 use idevice::services::afc::AfcClient;
-use idevice::services::afc::AfcClient;
-use idevice::services::afc::opcode::AfcFopenMode;
 use idevice::services::afc::opcode::AfcFopenMode;
 use idevice::services::installation_proxy::InstallationProxyClient;
 use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
