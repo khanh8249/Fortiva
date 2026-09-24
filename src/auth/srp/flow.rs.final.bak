@@ -235,8 +235,8 @@ impl SrpFlow {
 
         let app_token = if let (Some(adsid), Some(c2), Some(sk), Some(idms)) = (
             extract_string(&spd_data, &["adsid"]),
-            spd_data.get("c").cloned(),
-            extract_data_flexible(&spd_data, "sk"),
+            extract_string(&spd_data, &["c"]),
+            spd_data.get("sk").and_then(|v| v.as_data()),
             extract_string(&spd_data, &["GsIdmsToken", "idmsToken"]),
         ) {
             match self.fetch_app_token(gsa, &adsid, &c2, &idms, sk, &session_key) {

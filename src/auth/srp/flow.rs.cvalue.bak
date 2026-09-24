@@ -235,8 +235,8 @@ impl SrpFlow {
 
         let app_token = if let (Some(adsid), Some(c2), Some(sk), Some(idms)) = (
             extract_string(&spd_data, &["adsid"]),
-            spd_data.get("c").cloned(),
-            extract_data_flexible(&spd_data, "sk"),
+            extract_string(&spd_data, &["c"]),
+            spd_data.get("sk").and_then(|v| v.as_data()),
             extract_string(&spd_data, &["GsIdmsToken", "idmsToken"]),
         ) {
             match self.fetch_app_token(gsa, &adsid, &c2, &idms, sk, &session_key) {
@@ -267,14 +267,14 @@ impl SrpFlow {
         &self,
         gsa: &mut GsaClient,
         adsid: &str,
-        c: &Value,
+        c: &str,
         idms_token: &str,
         sk: &[u8],
         session_key: &[u8],
     ) -> Result<Option<String>> {
         eprintln!("[DBG-APPTOKEN] === fetch_app_token ===");
         eprintln!("[DBG-APPTOKEN] adsid: {}", &adsid[..adsid.len().min(20)]);
-        eprintln!("[DBG-APPTOKEN] c type: {:?}", std::mem::discriminant(c));
+        eprintln!("[DBG-APPTOKEN] c: {}", &c[..c.len().min(20)]);
         eprintln!("[DBG-APPTOKEN] idms_token len: {}", idms_token.len());
         eprintln!("[DBG-APPTOKEN] sk len: {}", sk.len());
         eprintln!("[DBG-APPTOKEN] session_key len: {}", session_key.len());
@@ -290,7 +290,7 @@ impl SrpFlow {
         let mut params: HashMap<String, Value> = HashMap::new();
         params.insert("u".into(), Value::String(adsid.to_string()));
         params.insert("app".into(), Value::Array(vec![Value::String(APP.to_string())]));
-        params.insert("c".into(), c.clone());
+        params.insert("c".into(), Value::String(c.to_string()));
         params.insert("t".into(), Value::String(idms_token.to_string()));
         params.insert("checksum".into(), Value::Data(checksum));
         params.insert("o".into(), Value::String("apptokens".into()));
