@@ -1,3 +1,4 @@
+pub mod teams;
 // src/dev/mod.rs
 mod app_groups;
 mod app_ids;

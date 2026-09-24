@@ -4,7 +4,8 @@ use fortiva::auth::anisette::AnisetteClient;
 use fortiva::auth::gsa::GsaClient;
 use fortiva::auth::twofa::TwoFAHandler;
 use fortiva::ui::{log, menu, progress, spinner, theme};
-use std::io::{self, Write};
+use fortiva::session::Session;
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
@@ -17,7 +18,7 @@ fn prompt_text(label: &str) -> String {
     print!("  {} {} ", theme::primary("»"), label);
     io::stdout().flush().ok();
     let mut buf = Vec::new();
-    io::stdin().read_until(b'\n', &mut buf).ok();
+    io::stdin().lock().read_until(b'\n', &mut buf).ok();
     String::from_utf8_lossy(&buf).trim().to_string()
 }
 
@@ -38,7 +39,7 @@ fn pause() {
     print!("\n  {} ", theme::muted("Nhấn Enter để tiếp tục..."));
     io::stdout().flush().ok();
     let mut buf = Vec::new();
-    let _ = io::stdin().read_until(b'\n', &mut buf);
+    let _ = io::stdin().lock().read_until(b'\n', &mut buf);
 }
 
 fn shellexpand(s: &str) -> String {
@@ -56,10 +57,10 @@ fn shellexpand(s: &str) -> String {
 
 fn prompt_choice() -> String {
     menu::print_menu();
-    print!("  {} Chọn (1-9): ", theme::bold_primary("?"));
+    print!("  {} Chọn (1-9 hoặc 0): ", theme::bold_primary("?"));
     io::stdout().flush().ok();
     let mut buf = Vec::new();
-    io::stdin().read_until(b'\n', &mut buf).ok();
+    io::stdin().lock().read_until(b'\n', &mut buf).ok();
     String::from_utf8_lossy(&buf).trim().to_string()
 }
 
@@ -67,13 +68,27 @@ fn prompt_choice() -> String {
 fn redraw_home() {
     theme::clear_screen();
     menu::print_logo();
-    let status = get_iphone_status();
-    menu::print_status(&status);
+    let iphone = get_iphone_status();
+    let account = get_account_status();
+    menu::print_status_with_account(&iphone, &account);
 }
 
 // ============================================================
 //  STATUS
 // ============================================================
+
+fn get_account_status() -> String {
+    match Session::load() {
+        Ok(Some(s)) => {
+            if s.is_expired() {
+                theme::warn(&format!("🔑 {} (hết hạn)", s.apple_id))
+            } else {
+                theme::success(&format!("🔑 {} ({})", s.apple_id, s.time_left_str()))
+            }
+        }
+        _ => theme::muted("🔑 Chưa login"),
+    }
+}
 
 fn get_iphone_status() -> String {
     let usbmuxd_ok = std::process::Command::new("pgrep")
@@ -158,6 +173,33 @@ fn cmd_login_apple_id() -> Result<()> {
                 };
                 lines.push(format!("Token:     {}", token_display));
                 theme::success_box("ĐĂNG NHẬP THÀNH CÔNG", &lines);
+
+                // === LƯU SESSION ===
+                if let Some(dsid) = result.dsid.clone() {
+                    let session = Session {
+                        apple_id: apple_id.clone(),
+                        dsid: dsid.clone(),
+                        session_token: result.session_token.clone().unwrap_or_default(),
+                        user_id: user_id.clone(),
+                        device_id: device_id.clone(),
+                        team_id: None,
+                        team_name: None,
+                        created_at: fortiva::session::now(),
+                        expires_at: fortiva::session::now() + 7 * 24 * 3600,  // 7 ngày
+                    };
+                    
+                    match session.save() {
+                        Ok(()) => {
+                            log::success(&format!("✓ Đã lưu session cho {}", apple_id));
+                            log::info(&format!("  Hết hạn sau: 7 ngày"));
+                        }
+                        Err(e) => {
+                            log::warn(&format!("⚠️  Không lưu được session: {}", e));
+                        }
+                    }
+                } else {
+                    log::warn("⚠️  Không có DSID — không lưu session");
+                }
             } else {
                 log::warn("Đăng nhập chưa hoàn tất.");
             }
@@ -456,12 +498,15 @@ fn cmd_sign_and_install() -> Result<()> {
             .context("Không tạo được tokio runtime")?;
 
         let res = rt.block_on(async {
-            fortiva::install::install_app_bundle(&signed_path, &udid).await
+            fortiva::install::install_app_bundle(
+    signed_path.to_string_lossy().as_ref(),
+    &udid,
+).await
         });
 
         for i in 61..=100 {
             pb.set_position(i as u64);
-            if i == 90 { pb.set_message("Đang hoàn tất..."); }
+            if i == 90 { pb.set_message("Đang hoàn t..."); }
             thread::sleep(Duration::from_millis(15));
         }
 
@@ -501,7 +546,7 @@ fn cmd_setup_sidestore_pairing() -> Result<()> {
     theme::clear_screen();
     log::header("SETUP SIDESTORE PAIRING");
 
-    println!("  {} Tool này ghi pairing file vào SideStore container", theme::muted("→"));
+    println!("  {} Tool ghi pairing file vào SideStore container", theme::muted("→"));
     println!("  {} để SideStore sideload không cần Mac.", theme::muted("→"));
     println!();
     println!("  {} Yêu cầu:", theme::muted("→"));
@@ -520,7 +565,12 @@ fn cmd_setup_sidestore_pairing() -> Result<()> {
         Ok(prompt_yn("Tiếp tục? (y/n):"))
     };
 
-    fortiva::tools::setup_sidestore_pairing(notify);
+    let rt = tokio::runtime::Runtime::new()
+        .context("Không tạo được tokio runtime")?;
+
+    rt.block_on(async {
+        fortiva::tools::setup_sidestore_pairing(notify).await
+    })?;
 
     theme::success_box(
         "SETUP SIDESTORE THÀNH CÔNG",
@@ -530,78 +580,143 @@ fn cmd_setup_sidestore_pairing() -> Result<()> {
     Ok(())
 }
 
-
 // ============================================================
-//  FEATURE 6: SETUP SIDESTORE PAIRING
+//  FEATURE 7: DEVICE MANAGER (LIST DEVICES)
 // ============================================================
 
-fn cmd_setup_sidestore_pairing() -> Result<()> {
+fn cmd_device_manager() -> Result<()> {
     theme::clear_screen();
-    log::header("SETUP SIDESTORE PAIRING");
+    log::header("QUẢN LÝ THIẾT BỊ");
 
-    println!("  {} Tool này ghi pairing file vào SideStore container", theme::muted("→"));
-    println!("  {} để SideStore sideload không cần Mac.", theme::muted("→"));
-    println!();
-    println!("  {} Yêu cầu:", theme::muted("→"));
-    println!("    {} iPhone đã cài SideStore", theme::muted("•"));
-    println!("    {} Đã pair 1 lần (idevicepair pair)", theme::muted("•"));
-    println!("    {} usbmuxd đang chạy", theme::muted("•"));
-    println!();
+    // Khởi tạo clients giống pattern của sign_with_progress
+    let mut auth = AnisetteClient::new(None);
+    auth.fetch(false).context("Anisette fetch thất bại")?;
 
-    if !prompt_yn("Tiếp tục? (y/n):") {
-        return Ok(());
-    }
+    let mut dev = fortiva::dev::DeveloperClient::new(
+        "fortiva".to_string(),
+        "fortiva".to_string(),
+    )?;
 
-    let notify = |msg: &str| -> Result<bool> {
-        println!();
-        log::warn(msg);
-        Ok(prompt_yn("Tiếp tục? (y/n):"))
-    };
-
-    fortiva::tools::setup_sidestore_pairing(notify);
-
-    theme::success_box(
-        "SETUP SIDESTORE THÀNH CÔNG",
-        &["Mở SideStore → Settings để kiểm tra".to_string()],
-    );
+    fortiva::tools::device_manager::list_devices(&mut dev, &mut auth)?;
 
     Ok(())
 }
 
-
 // ============================================================
-//  FEATURE 6: SETUP SIDESTORE PAIRING
+//  FEATURE 8: REVOKE CERTIFICATES
 // ============================================================
 
-fn cmd_setup_sidestore_pairing() -> Result<()> {
+fn cmd_revoke_certs() -> Result<()> {
     theme::clear_screen();
-    log::header("SETUP SIDESTORE PAIRING");
+    log::header("THU HỒI CHỨNG CHỈ");
 
-    println!("  {} Tool này ghi pairing file vào SideStore container", theme::muted("→"));
-    println!("  {} để SideStore sideload không cần Mac.", theme::muted("→"));
-    println!();
-    println!("  {} Yêu cầu:", theme::muted("→"));
-    println!("    {} iPhone đã cài SideStore", theme::muted("•"));
-    println!("    {} Đã pair 1 lần (idevicepair pair)", theme::muted("•"));
-    println!("    {} usbmuxd đang chạy", theme::muted("•"));
-    println!();
+    // Khởi tạo clients
+    let mut auth = AnisetteClient::new(None);
+    auth.fetch(false).context("Anisette fetch thất bại")?;
 
-    if !prompt_yn("Tiếp tục? (y/n):") {
+    let mut dev = fortiva::dev::DeveloperClient::new(
+        "fortiva".to_string(),
+        "fortiva".to_string(),
+    )?;
+
+    // 1. Liệt kê certs hiện có
+    let certs = fortiva::tools::cert_manager::list_certs(&mut dev, &mut auth)?;
+
+    if certs.is_empty() {
         return Ok(());
     }
 
-    let notify = |msg: &str| -> Result<bool> {
+    // 2. Hỏi user nhập ID cần revoke
+    println!();
+    let cert_id = prompt_text("Nhập ID cert cần thu hồi (Enter = hủy):");
+
+    if cert_id.is_empty() {
+        log::info("Đã hủy.");
+        return Ok(());
+    }
+
+    // 3. Xác nhận
+    if !prompt_yn(&format!("Chắc chắn thu hồi cert {}? (y/n):", cert_id)) {
+        log::info("Đã hủy.");
+        return Ok(());
+    }
+
+    // 4. Revoke
+    fortiva::tools::cert_manager::revoke_cert(&mut dev, &mut auth, &cert_id)?;
+
+    Ok(())
+}
+
+// ============================================================
+//  FEATURE 9: DEVICE INFO
+// ============================================================
+
+fn cmd_device_info() -> Result<()> {
+    theme::clear_screen();
+    log::header("THÔNG TIN THIẾT BỊ");
+
+    let devices = fortiva::usb::list_usb_devices()?;
+
+    if devices.is_empty() {
+        log::warn("Không tìm thấy iPhone nào.");
+        return Ok(());
+    }
+
+    println!("  {} {} thiết bị kết nối:\n", theme::primary("→"), devices.len());
+
+    for (i, d) in devices.iter().enumerate() {
+        match fortiva::usb::device_info(&d.udid) {
+            Ok(info) => {
+                let lines = vec![
+                    format!("Tên:   {}", info.name),
+                    format!("UDID:  {}", info.udid),
+                    format!("Model: {}", info.model),
+                    format!("iOS:   {}", info.version),
+                ];
+                theme::box_section(&format!("Device {}", i + 1), &lines);
+            }
+            Err(e) => {
+                log::error(&format!("Không đọc được info: {}", e));
+            }
+        }
         println!();
-        log::warn(msg);
-        Ok(prompt_yn("Tiếp tục? (y/n):"))
-    };
+    }
 
-    fortiva::tools::setup_sidestore_pairing(notify);
+    Ok(())
+}
 
-    theme::success_box(
-        "SETUP SIDESTORE THÀNH CÔNG",
-        &["Mở SideStore → Settings để kiểm tra".to_string()],
-    );
+// ============================================================
+//  MAIN
+// ============================================================
+
+
+// ============================================================
+//  FEATURE 10: LOGOUT
+// ============================================================
+
+fn cmd_logout() -> Result<()> {
+    theme::clear_screen();
+    log::header("ĐĂNG XUẤT");
+
+    match Session::load() {
+        Ok(Some(s)) => {
+            println!("  {} Session hiện tại:", theme::primary("»"));
+            println!("     Apple ID: {}", theme::muted(&s.apple_id));
+            println!("     DSID:     {}", theme::muted(&s.dsid));
+            println!();
+
+            if !prompt_yn("Xoá session này? (y/n):") {
+                log::info("Đã hủy.");
+                return Ok(());
+            }
+
+            Session::clear()?;
+            log::success("✓ Đã đăng xuất");
+        }
+        _ => {
+            log::info("Chưa có session nào.");
+        }
+    }
 
     Ok(())
 }
@@ -614,8 +729,9 @@ fn main() {
     theme::clear_screen();
 
     menu::print_logo();
-    let status = get_iphone_status();
-    menu::print_status(&status);
+    let iphone = get_iphone_status();
+    let account = get_account_status();
+    menu::print_status_with_account(&iphone, &account);
 
     loop {
         let choice = prompt_choice();
@@ -629,7 +745,9 @@ fn main() {
             "6" => cmd_setup_sidestore_pairing(),
             "7" => cmd_device_manager(),
             "8" => cmd_revoke_certs(),
-            "9" => {
+            "9" => cmd_device_info(),
+            "10" | "logout" => cmd_logout(),
+            "0" | "" => {
                 theme::clear_screen();
                 println!();
                 log::info("Tạm biệt! 👋");

@@ -4,6 +4,7 @@ pub mod constants;
 pub mod dev;
 pub mod install;
 pub mod sideload;
+pub mod session;
 pub mod tools;
 pub mod ui;
 pub mod usb;

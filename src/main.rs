@@ -4,6 +4,7 @@ use fortiva::auth::anisette::AnisetteClient;
 use fortiva::auth::gsa::GsaClient;
 use fortiva::auth::twofa::TwoFAHandler;
 use fortiva::ui::{log, menu, progress, spinner, theme};
+use fortiva::session::Session;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::thread;
@@ -67,13 +68,27 @@ fn prompt_choice() -> String {
 fn redraw_home() {
     theme::clear_screen();
     menu::print_logo();
-    let status = get_iphone_status();
-    menu::print_status(&status);
+    let iphone = get_iphone_status();
+    let account = get_account_status();
+    menu::print_status_with_account(&iphone, &account);
 }
 
 // ============================================================
 //  STATUS
 // ============================================================
+
+fn get_account_status() -> String {
+    match Session::load() {
+        Ok(Some(s)) => {
+            if s.is_expired() {
+                theme::warn(&format!("🔑 {} (hết hạn)", s.apple_id))
+            } else {
+                theme::success(&format!("🔑 {} ({})", s.apple_id, s.time_left_str()))
+            }
+        }
+        _ => theme::muted("🔑 Chưa login"),
+    }
+}
 
 fn get_iphone_status() -> String {
     let usbmuxd_ok = std::process::Command::new("pgrep")
@@ -158,6 +173,33 @@ fn cmd_login_apple_id() -> Result<()> {
                 };
                 lines.push(format!("Token:     {}", token_display));
                 theme::success_box("ĐĂNG NHẬP THÀNH CÔNG", &lines);
+
+                // === LƯU SESSION ===
+                if let Some(dsid) = result.dsid.clone() {
+                    let session = Session {
+                        apple_id: apple_id.clone(),
+                        dsid: dsid.clone(),
+                        session_token: result.session_token.clone().unwrap_or_default(),
+                        user_id: user_id.clone(),
+                        device_id: device_id.clone(),
+                        team_id: None,
+                        team_name: None,
+                        created_at: fortiva::session::now(),
+                        expires_at: fortiva::session::now() + 7 * 24 * 3600,  // 7 ngày
+                    };
+                    
+                    match session.save() {
+                        Ok(()) => {
+                            log::success(&format!("✓ Đã lưu session cho {}", apple_id));
+                            log::info(&format!("  Hết hạn sau: 7 ngày"));
+                        }
+                        Err(e) => {
+                            log::warn(&format!("⚠️  Không lưu được session: {}", e));
+                        }
+                    }
+                } else {
+                    log::warn("⚠️  Không có DSID — không lưu session");
+                }
             } else {
                 log::warn("Đăng nhập chưa hoàn tất.");
             }
@@ -647,12 +689,49 @@ fn cmd_device_info() -> Result<()> {
 //  MAIN
 // ============================================================
 
+
+// ============================================================
+//  FEATURE 10: LOGOUT
+// ============================================================
+
+fn cmd_logout() -> Result<()> {
+    theme::clear_screen();
+    log::header("ĐĂNG XUẤT");
+
+    match Session::load() {
+        Ok(Some(s)) => {
+            println!("  {} Session hiện tại:", theme::primary("»"));
+            println!("     Apple ID: {}", theme::muted(&s.apple_id));
+            println!("     DSID:     {}", theme::muted(&s.dsid));
+            println!();
+
+            if !prompt_yn("Xoá session này? (y/n):") {
+                log::info("Đã hủy.");
+                return Ok(());
+            }
+
+            Session::clear()?;
+            log::success("✓ Đã đăng xuất");
+        }
+        _ => {
+            log::info("Chưa có session nào.");
+        }
+    }
+
+    Ok(())
+}
+
+// ============================================================
+//  MAIN
+// ============================================================
+
 fn main() {
     theme::clear_screen();
 
     menu::print_logo();
-    let status = get_iphone_status();
-    menu::print_status(&status);
+    let iphone = get_iphone_status();
+    let account = get_account_status();
+    menu::print_status_with_account(&iphone, &account);
 
     loop {
         let choice = prompt_choice();
@@ -667,6 +746,7 @@ fn main() {
             "7" => cmd_device_manager(),
             "8" => cmd_revoke_certs(),
             "9" => cmd_device_info(),
+            "10" | "logout" => cmd_logout(),
             "0" | "" => {
                 theme::clear_screen();
                 println!();

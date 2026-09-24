@@ -44,7 +44,11 @@ pub fn print_menu() {
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
     println!("{}│{}  [{}8{}]  🔑  Thu hồi certificate                {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}9{}]  🚪  Thoát                              {}│{}",
+    println!("{}│{}  [{}9{}]  📲  Device info                         {}│{}",
+        MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
+    println!("{}│{}  [{}10{}] 🚪  Logout                            {}│{}",
+        MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
+    println!("{}│{}  [{}0{}]  ❌  Thoát                              {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
     println!("{}└─────────────────────────────────────────────┘{}", MUTED, RESET);
     println!();
@@ -52,6 +56,12 @@ pub fn print_menu() {
 
 
 pub fn print_status(iphone_status: &str) {
-    println!("  {} 📱 iPhone: {}", primary("Status"), iphone_status);
+    println!("  {} 📱 iPhone:  {}", primary("Status"), iphone_status);
+    println!();
+}
+
+pub fn print_status_with_account(iphone_status: &str, account_status: &str) {
+    println!("  {} 📱 iPhone:  {}", primary("Status"), iphone_status);
+    println!("  {} 🔑 Account: {}", primary("Status"), account_status);
     println!();
 }
