@@ -239,7 +239,7 @@ impl SrpFlow {
             extract_data_flexible(&spd_data, "sk"),
             extract_string(&spd_data, &["GsIdmsToken", "idmsToken"]),
         ) {
-            match self.fetch_app_token(gsa, &adsid, &c2, &idms, sk, &session_key) {
+            match self.fetch_app_token(gsa, &adsid, &c2, &idms, &sk, &session_key) {
                 Ok(Some(t)) => {
                     println!("[srp] App token OK");
                     Some(t)
