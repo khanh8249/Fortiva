@@ -69,7 +69,7 @@ impl Sideloader {
         // ============================================================
         let main_bundle_id = app.main_bundle_id()?;
         let team_id = cert.machine_id.clone();
-        let new_bundle_id = format!("{}.{}", main_bundle_id, team_id);
+        let new_bundle_id = main_bundle_id.clone();
         let main_app_name = app.main_app_name()?;
 
         println!(
