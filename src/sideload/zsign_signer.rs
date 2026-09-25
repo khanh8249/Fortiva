@@ -14,7 +14,7 @@ use super::cert_identity::CertificateIdentity;
 ///
 /// Flow:
 /// 1. Repack bundle tree đã patch → IPA tạm
-/// 2. Ghi P12 + profile tạm
+/// 2. Ghi profile tạm
 /// 3. Gọi ZSign::sign_ipa() → output IPA (đã nhúng entitlements)
 /// 4. Trả về path output IPA
 pub fn sign_with_zsign(
@@ -32,22 +32,30 @@ pub fn sign_with_zsign(
     repack_bundle_to_ipa(bundle_dir, &tmp_ipa)?;
     println!("[zsign] IPA tạm: {} bytes", fs::metadata(&tmp_ipa)?.len());
 
-    // 2. Ghi P12 + profile tạm
+    // 2. Ghi profile tạm
     let tmp_dir = std::env::temp_dir().join("fortiva_sign");
     fs::create_dir_all(&tmp_dir).context("Tạo tmp dir fail")?;
 
-    let p12_path = tmp_dir.join("cert.p12");
-    let p12_bytes = cert.as_p12(&cert.machine_id).context("Tạo P12 fail")?;
-    fs::write(&p12_path, &p12_bytes).context("Ghi P12 fail")?;
-    println!("[zsign] P12: {} ({} bytes)", p12_path.display(), p12_bytes.len());
 
     let profile_path = tmp_dir.join("app.mobileprovision");
     fs::write(&profile_path, profile_data).context("Ghi profile fail")?;
     println!("[zsign] Profile: {} ({} bytes)", profile_path.display(), profile_data.len());
 
     // 3. Load credentials
-    let credentials = SigningCredentials::from_p12(&p12_bytes, "")
-        .map_err(|e| anyhow!("Load P12 fail: {:?}", e))?;
+    // 2. Convert key PKCS#1 → PKCS#8 (Apple thường trả PKCS#1)
+    println!("[zsign] Chuẩn bị credentials từ PEM...");
+    let pkey = openssl::pkey::PKey::private_key_from_pem(cert.key_pem.as_bytes())
+        .context("Parse key PEM fail")?;
+    let pkcs8_pem = pkey.private_key_to_pem_pkcs8()
+        .context("Convert PKCS#8 fail")?;
+    let key_pem_pkcs8 = String::from_utf8(pkcs8_pem)
+        .context("PKCS#8 UTF-8 fail")?;
+
+    let credentials = SigningCredentials::from_pem(
+        cert.cert_pem.as_bytes(),
+        key_pem_pkcs8.as_bytes(),
+        None,
+    ).map_err(|e| anyhow!("Load PEM fail: {:?}", e))?;
 
     // 4. Sign IPA
     println!("[zsign] Sign IPA → {}", output_ipa.display());
@@ -64,7 +72,6 @@ pub fn sign_with_zsign(
 
     // Cleanup
     let _ = fs::remove_file(&tmp_ipa);
-    let _ = fs::remove_file(&p12_path);
     let _ = fs::remove_file(&profile_path);
 
     let _ = app; // dùng để tránh warning unused
