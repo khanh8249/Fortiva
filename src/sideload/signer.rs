@@ -26,11 +26,17 @@ pub fn sign_app(
         &output_ipa,
     )?;
 
-    // Extract IPA signed ngược về bundle dir
+    // Extract IPA signed ngược về bundle dir.
+    // output_ipa chứa entry dạng "Payload/SideStore.app/...", nên dest phải là
+    // thư mục GỐC chứa "Payload/" — tức lùi 2 cấp từ bundle_dir (.app), không phải 1.
+    // Lùi có 1 cấp (bundle_dir.parent() = .../Payload) sẽ tạo lồng "Payload/Payload/..."
+    // và không đè được bundle cũ chưa ký -> installd báo "No code signature found".
     println!("[sign] Extract signed IPA back to bundle dir...");
-    let parent = bundle_dir.parent()
-        .ok_or_else(|| anyhow!("Bundle dir không có parent"))?;
-    extract_ipa_to_dir(&output_ipa, parent)?;
+    let extraction_root = bundle_dir
+        .parent() // .../Payload
+        .and_then(|p| p.parent()) // .../<ipa>_extracted  (gốc chứa Payload/)
+        .ok_or_else(|| anyhow!("Bundle dir không đủ cấp thư mục"))?;
+    extract_ipa_to_dir(&output_ipa, extraction_root)?;
 
     Ok(())
 }
