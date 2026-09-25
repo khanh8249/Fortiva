@@ -106,9 +106,22 @@ pub fn sign_ipa_auto(
         app.write_profile_for_extension(ext_id, &ext_profile.encoded_profile)?;
     }
 
-    // 10. Sign bundle tree
+    // 10. Sign bundle tree (multi-profile: main + từng ext)
     let special = app.get_special_app();
-    sign_app(&mut app, &cert, &main_profile.encoded_profile, &special)?;
+    
+    // Collect ext_profiles thành Vec<(String, Vec<u8>)> cho zsign-rs
+    let ext_profiles_vec: Vec<(String, Vec<u8>)> = ext_profiles
+        .iter()
+        .map(|(id, p)| (id.clone(), p.encoded_profile.clone()))
+        .collect();
+    
+    sign_app(
+        &mut app,
+        &cert,
+        &main_profile.encoded_profile,
+        &ext_profiles_vec,
+        &special,
+    )?;
     println!("[8/8] Sign OK");
 
     let signed_path = app.bundle.bundle_dir.clone();

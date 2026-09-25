@@ -276,10 +276,17 @@ impl Sideloader {
         }
 
         // ============================================================
-        // BƯỚC 12: Ký
+        // BƯỚC 12: Ký (multi-profile: main + từng ext)
         // ============================================================
         println!("\n[sideload] === Bắt đầu ký ===");
-        sign_app(&mut app, &cert, &profile_data, &special)?;
+        
+        sign_app(
+            &mut app,
+            &cert,
+            &profile_data,
+            &extension_profiles,   // Vec<(String, Vec<u8>)> đã sẵn
+            &special,
+        )?;
 
         let signed_path = app.bundle.bundle_dir.clone();
         println!("\n[sideload] ✅ Ký xong: {}", signed_path.display());

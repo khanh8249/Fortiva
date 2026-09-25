@@ -155,9 +155,21 @@ pub fn install_app_full(
         app.write_profile_for_extension(ext_id, &ext_profile.encoded_profile)?;
     }
 
-    // 10. Sign
+    // 10. Sign (multi-profile: main + từng ext)
     report(0.75, "Sign bundle tree");
-    sign_app(&mut app, &cert, &main_profile.encoded_profile, &special)?;
+    
+    let ext_profiles_vec: Vec<(String, Vec<u8>)> = ext_profiles
+        .iter()
+        .map(|(id, p)| (id.clone(), p.encoded_profile.clone()))
+        .collect();
+    
+    sign_app(
+        &mut app,
+        &cert,
+        &main_profile.encoded_profile,
+        &ext_profiles_vec,
+        &special,
+    )?;
 
     // 11. Repack
     report(0.85, "Repack IPA");

@@ -32,14 +32,14 @@ pub fn extract_signed_ipa(ipa_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
 pub fn sign_with_zsign(
     _app: &Application,
     cert: &CertificateIdentity,
-    main_profileem: &[u8],
+    main_profile: &[u8],
     ext_profiles: &[(String, Vec<u8>)],
     input_ipa: &Path,
-    output_ipa: &Path =,
+    output_ipa: &Path,
 ) -> Result<()> {
-    println!("[zsign] === ZSign (FORK multi-profile p)key ===");
+    println!("[zsign] === ZSign (FORK multi-profile) ===");
     println!("[zsign] Input:  {}", input_ipa.display());
-    println!("[zsign] Output: {}", output_.ipa.display());
+    println!("[zsign] Output: {}", output_ipa.display());
     println!("[zsign] Main profile: {} bytes", main_profile.len());
     println!("[zsign] Ext profiles: {} ext", ext_profiles.len());
 
@@ -51,20 +51,20 @@ pub fn sign_with_zsign(
 
     let mut profile_map: HashMap<String, PathBuf> = HashMap::new();
     for (bundle_id, profile_data) in ext_profiles {
-        let safe_name = bundle_id.replace("/", "_");
+        let safe_name = bundle_id.replace('/', "_");
         let path = tmp_dir.join(format!("{}.mobileprovision", safe_name));
         fs::write(&path, profile_data).context("Ghi ext profile fail")?;
         profile_map.insert(bundle_id.clone(), path);
-        println!("[zsign]   Ext profile: {} -> {}", bundle_id, safe_name);
+        println!("[zsign]   Ext: {} -> {}", bundle_id, safe_name);
     }
 
-    println!("[zsign] Convert PKCS#8...");
+    println!("[zsign] Convert PKCS8...");
     let pkey = openssl::pkey::PKey::private_key_from_pem(cert.key_pem.as_bytes())
         .context("Parse key PEM fail")?;
-    let pkcs8_pprivate_key_to_pem_pkcs8()
-        .context("Convert PKCS#8 fail")?;
+    let pkcs8_pem = pkey.private_key_to_pem_pkcs8()
+        .context("Convert PKCS8 fail")?;
     let key_pem_pkcs8 = String::from_utf8(pkcs8_pem)
-        .context("PKCS#8 UTF-8 fail")?;
+        .context("PKCS8 UTF-8 fail")?;
 
     let credentials = SigningCredentials::from_pem(
         cert.cert_pem.as_bytes(),
