@@ -225,11 +225,18 @@ impl DeveloperClient {
             .json(&serde_json::json!({ "urlEncodedQueryParams": query }))
             .send()?;
 
-        if !resp.status().is_success() {
-            return Err(anyhow!("JSON API {} that bai: {}", url, resp.status()));
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(anyhow!("JSON API {} that bai: {}", url, status));
         }
 
         let bytes = resp.bytes()?;
+
+        // Empty body (204, hoặc 200 với 0 bytes) = OK, trả Null
+        if bytes.is_empty() {
+            return Ok(serde_json::Value::Null);
+        }
+
         let json: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|e| anyhow!(
                 "JSON parse fail: {} - first 200: {}",
