@@ -1,120 +1,128 @@
 // src/sideload/zsign_signer.rs
-// Signing via zsign-core — pure Rust, WASM-compatible
+// Signing via zsign-rs (IpaSigner) — tự động extract + ký + repack
 
 use anyhow::{anyhow, Context, Result};
 use std::fs;
 use std::path::Path;
 
-use zsign_core::codesign::{CodeDirectoryBuilder, SuperBlobBuilder};
-use zsign_core::crypto::SigningCredentials;
-use zsign_core::macho::MachO;
-use zsign_core::provisioning::extract_entitlements_from_profile;
+use zsign_rs::{SigningCredentials, ZSign};
 
 use super::application::Application;
 use super::cert_identity::CertificateIdentity;
 
-/// Sign toàn bộ bundle tree dùng zsign-core.
-pub fn sign_app_with_zsign(
-    app: &mut Application,
+/// Sign IPA dùng zsign-rs.
+///
+/// Flow:
+/// 1. Repack bundle tree đã patch → IPA tạm
+/// 2. Ghi P12 + profile tạm
+/// 3. Gọi ZSign::sign_ipa() → output IPA (đã nhúng entitlements)
+/// 4. Trả về path output IPA
+pub fn sign_with_zsign(
+    app: &Application,
     cert: &CertificateIdentity,
     profile_data: &[u8],
+    bundle_dir: &Path,
+    output_ipa: &Path,
 ) -> Result<()> {
-    println!("[zsign] === zsign-core signing ===");
+    println!("[zsign] === zsign-rs signing ===");
 
-    // 1. Load credentials từ P12
-    let p12_bytes = cert.as_p12(&cert.machine_id)
-        .context("Tạo P12 fail")?;
+    // 1. Repack bundle tree → IPA tạm
+    let tmp_ipa = std::env::temp_dir().join("fortiva_input.ipa");
+    println!("[zsign] Repack bundle → {}", tmp_ipa.display());
+    repack_bundle_to_ipa(bundle_dir, &tmp_ipa)?;
+    println!("[zsign] IPA tạm: {} bytes", fs::metadata(&tmp_ipa)?.len());
+
+    // 2. Ghi P12 + profile tạm
+    let tmp_dir = std::env::temp_dir().join("fortiva_sign");
+    fs::create_dir_all(&tmp_dir).context("Tạo tmp dir fail")?;
+
+    let p12_path = tmp_dir.join("cert.p12");
+    let p12_bytes = cert.as_p12(&cert.machine_id).context("Tạo P12 fail")?;
+    fs::write(&p12_path, &p12_bytes).context("Ghi P12 fail")?;
+    println!("[zsign] P12: {} ({} bytes)", p12_path.display(), p12_bytes.len());
+
+    let profile_path = tmp_dir.join("app.mobileprovision");
+    fs::write(&profile_path, profile_data).context("Ghi profile fail")?;
+    println!("[zsign] Profile: {} ({} bytes)", profile_path.display(), profile_data.len());
+
+    // 3. Load credentials
     let credentials = SigningCredentials::from_p12(&p12_bytes, "")
         .map_err(|e| anyhow!("Load P12 fail: {:?}", e))?;
-    println!("[zsign] Team ID: {:?}", credentials.team_id);
 
-    // 2. Extract entitlements XML từ profile
-    let entitlements_xml = extract_entitlements_from_profile(profile_data)
-        .map_err(|e| anyhow!("Extract entitlements fail: {:?}", e))?
-        .ok_or_else(|| anyhow!("Profile không có Entitlements"))?;
-    println!("[zsign] Entitlements: {} bytes", entitlements_xml.len());
+    // 4. Sign IPA
+    println!("[zsign] Sign IPA → {}", output_ipa.display());
+    ZSign::new()
+        .credentials(credentials)
+        .provisioning_profile(profile_path.to_string_lossy().as_ref())
+        .sign_ipa(
+            tmp_ipa.to_string_lossy().as_ref(),
+            output_ipa.to_string_lossy().as_ref(),
+        )
+        .map_err(|e| anyhow!("zsign sign_ipa fail: {:?}", e))?;
 
-    // 3. Main bundle ID (đã patch ở bước trước)
-    let main_bundle_id = app.bundle.bundle_identifier()
-        .ok_or_else(|| anyhow!("Main app thiếu CFBundleIdentifier"))?
-        .to_string();
-    println!("[zsign] Main bundle ID: {}", main_bundle_id);
+    println!("[zsign] ✅ DONE — {}", output_ipa.display());
 
-    // 4. Walk bundle tree — ký ext/frameworks trước (depth-first)
-    let extensions = app.bundle.app_extensions();
-    for ext in extensions {
-        let ext_id = ext.bundle_identifier()
-            .ok_or_else(|| anyhow!("Ext thiếu CFBundleIdentifier"))?
-            .to_string();
-        let ext_exe = ext.executable_name()
-            .ok_or_else(|| anyhow!("Ext thiếu CFBundleExecutable: {}", ext_id))?
-            .to_string();
-        let ext_exe_path = ext.bundle_dir.join(&ext_exe);
+    // Cleanup
+    let _ = fs::remove_file(&tmp_ipa);
+    let _ = fs::remove_file(&p12_path);
+    let _ = fs::remove_file(&profile_path);
 
-        println!("[zsign] Sign ext: {} ({})", ext_id, ext_exe_path.display());
-
-        sign_binary(&ext_exe_path, &ext_id, &entitlements_xml, &credentials)?;
-    }
-
-    // 5. Ký main binary (sau cùng)
-    let main_exe = app.bundle.executable_name()
-        .ok_or_else(|| anyhow!("Main app thiếu CFBundleExecutable"))?
-        .to_string();
-    let main_exe_path = app.bundle.bundle_dir.join(&main_exe);
-
-    println!("[zsign] Sign main: {} ({})", main_bundle_id, main_exe_path.display());
-    sign_binary(&main_exe_path, &main_bundle_id, &entitlements_xml, &credentials)?;
-
-    println!("[zsign] ✅ DONE");
+    let _ = app; // dùng để tránh warning unused
     Ok(())
 }
 
-/// Ký 1 binary: build CodeDirectory → assemble SuperBlob → inject.
-fn sign_binary(
-    binary_path: &Path,
-    bundle_id: &str,
-    entitlements_xml: &[u8],
-    credentials: &SigningCredentials,
-) -> Result<()> {
-    // 1. Đọc binary
-    let macho_bytes = fs::read(binary_path)
-        .with_context(|| format!("Đọc binary fail: {}", binary_path.display()))?;
+/// Repack thư mục .app thành IPA (chỉ cần file, không cần symlink phức tạp).
+fn repack_bundle_to_ipa(bundle_dir: &Path, output_ipa: &Path) -> Result<()> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    use walkdir::WalkDir;
 
-    // 2. Parse Mach-O
-    let macho = MachO::parse(&macho_bytes)
-        .map_err(|e| anyhow!("Parse Mach-O fail: {:?}", e))?;
+    let bundle_name = bundle_dir
+        .file_name()
+        .ok_or_else(|| anyhow!("Bundle dir không có tên"))?
+        .to_string_lossy()
+        .to_string();
 
-    // 3. Build CodeDirectory SHA-1 + SHA-256
-    let team = credentials.team_id.as_deref().unwrap_or("");
+    let file = fs::File::create(output_ipa)
+        .with_context(|| format!("Tạo IPA fail: {}", output_ipa.display()))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
-    let cd_sha1 = CodeDirectoryBuilder::new(bundle_id, &macho_bytes)
-        .team_id(team)
-        .entitlements(entitlements_xml)
-        .build_sha1();
+    let base_parent = bundle_dir.parent()
+        .ok_or_else(|| anyhow!("Bundle dir không có parent"))?;
 
-    let cd_sha256 = CodeDirectoryBuilder::new(bundle_id, &macho_bytes)
-        .team_id(team)
-        .entitlements(entitlements_xml)
-        .build_sha256();
+    for entry in WalkDir::new(bundle_dir).follow_links(false) {
+        let entry = entry.context("Walk bundle fail")?;
+        let path = entry.path();
 
-    // 4. Assemble SuperBlob
-    let superblob = SuperBlobBuilder::new()
-        .code_directory_sha1(cd_sha1)
-        .code_directory_sha256(cd_sha256)
-        .entitlements(entitlements_xml.to_vec())
-        .bundle_id(bundle_id)
-        .build();
+        // Relative từ bundle.parent(): "Payload/SideStore.app/..."
+        let rel = path.strip_prefix(base_parent)
+            .with_context(|| format!("Strip prefix fail: {}", path.display()))?;
 
-    // 5. Inject signature
-    let signed_bytes = macho.replace_code_signature(&superblob)
-        .map_err(|e| anyhow!("Replace code signature fail: {:?}", e))?;
+        // Đảm bảo có "Payload/" prefix (nếu chưa)
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let full_path = if rel_str.starts_with("Payload/") {
+            rel_str.to_string()
+        } else {
+            format!("Payload/{}", rel_str)
+        };
 
-    // 6. Ghi lại binary
-    fs::write(binary_path, &signed_bytes)
-        .with_context(|| format!("Ghi binary fail: {}", binary_path.display()))?;
+        if path.is_file() {
+            zip.start_file(&full_path, opts)
+                .with_context(|| format!("Zip start_file fail: {}", full_path))?;
+            let data = fs::read(path)
+                .with_context(|| format!("Đọc file fail: {}", path.display()))?;
+            zip.write_all(&data)?;
+        } else if path.is_dir() {
+            // Không cần add_dir — zip tự tạo khi có file
+            // Nhưng cần cho thư mục rỗng
+            zip.add_directory(&full_path, opts)
+                .with_context(|| format!("Zip add_dir fail: {}", full_path))?;
+        }
+    }
 
-    println!("[zsign]   ✅ {} ({} bytes)",
-             binary_path.file_name().unwrap_or_default().to_string_lossy(),
-             signed_bytes.len());
+    zip.finish().context("Zip finish fail")?;
+    let _ = bundle_name;
     Ok(())
 }
