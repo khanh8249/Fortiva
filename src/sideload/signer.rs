@@ -1,77 +1,62 @@
 // src/sideload/signer.rs
-// Delegate signing sang zsign-rs
+// Sign flow — delegate to zsign-rs fork
 
 use anyhow::{anyhow, Context, Result};
-use std::path::Path;
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;
+use super::zsign_signer;
 
-/// Sign bundle tree — delegate sang zsign_signer module.
 pub fn sign_app(
     app: &mut Application,
     cert: &CertificateIdentity,
     profile_data: &[u8],
+    ext_profiles: &[(String, Vec<u8>)],
     _special: &Option<SpecialApp>,
 ) -> Result<()> {
-    let bundle_dir = app.bundle.bundle_dir.clone();
-    let output_ipa = std::env::temp_dir().join("fortiva_signed.ipa");
+    println!("[sign] === sign_app (zsign-rs fork) ===");
 
-    // Gọi zsign-rs sign
-    super::zsign_signer::sign_with_zsign(
-        app,
-        cert,
-        profile_data,
-        &bundle_dir,
-        &output_ipa,
+    let bundle_dir = app.bundle.bundle_dir.clone();
+    if !bundle_dir.exists() {
+        return Err(anyhow!("Bundle dir khong ton tai: {}", bundle_dir.display()));
+    }
+
+    let sc_info = bundle_dir.join("SC_Info");
+    if sc_info.exists() {
+        println!("[sign] Xoa SC_Info/");
+        std::fs::remove_dir_all(&sc_info).ok();
+    }
+
+    let tmp_ipa = std::env::temp_dir().join("fortiva_input.ipa");
+    if tmp_ipa.exists() { std::fs::remove_file(&tmp_ipa).ok(); }
+    zsign_signer::repack_bundle(&bundle_dir, &tmp_ipa)?;
+
+    let output_ipa = std::env::temp_dir().join("fortiva_signed.ipa");
+    if output_ipa.exists() { std::fs::remove_file(&output_ipa).ok(); }
+    zsign_signer::sign_with_zsign(
+        app, cert, profile_data, ext_profiles, &tmp_ipa, &output_ipa,
     )?;
 
-    // Extract IPA signed ngược về bundle dir.
-    // output_ipa chứa entry dạng "Payload/SideStore.app/...", nên dest phải là
-    // thư mục GỐC chứa "Payload/" — tức lùi 2 cấp từ bundle_dir (.app), không phải 1.
-    // Lùi có 1 cấp (bundle_dir.parent() = .../Payload) sẽ tạo lồng "Payload/Payload/..."
-    // và không đè được bundle cũ chưa ký -> installd báo "No code signature found".
-    println!("[sign] Extract signed IPA back to bundle dir...");
-    let extraction_root = bundle_dir
-        .parent() // .../Payload
-        .and_then(|p| p.parent()) // .../<ipa>_extracted  (gốc chứa Payload/)
-        .ok_or_else(|| anyhow!("Bundle dir không đủ cấp thư mục"))?;
-    extract_ipa_to_dir(&output_ipa, extraction_root)?;
+    let tmp_extract = std::env::temp_dir().join("fortiva_signed_extract");
+    if tmp_extract.exists() { std::fs::remove_dir_all(&tmp_extract).ok(); }
+    std::fs::create_dir_all(&tmp_extract).context("Tao tmp_extract fail")?;
 
-    Ok(())
-}
+    let extracted_app = zsign_signer::extract_signed_ipa(&output_ipa, &tmp_extract)?;
+    println!("[sign] Extracted: {}", extracted_app.display());
 
-/// Extract IPA vào thư mục đích (giữ cấu trúc Payload/).
-fn extract_ipa_to_dir(ipa_path: &Path, dest: &Path) -> Result<()> {
-    use std::io::Read;
-
-    let file = std::fs::File::open(ipa_path)
-        .with_context(|| format!("Mở IPA fail: {}", ipa_path.display()))?;
-    let mut zip = zip::ZipArchive::new(file)
-        .context("Mở zip IPA fail")?;
-
-    // Xóa Payload cũ
-    let payload_dir = dest.join("Payload");
-    if payload_dir.exists() {
-        std::fs::remove_dir_all(&payload_dir)?;
+    if bundle_dir.exists() {
+        std::fs::remove_dir_all(&bundle_dir)
+            .with_context(|| format!("Xoa bundle cu fail: {}", bundle_dir.display()))?;
     }
+    std::fs::rename(&extracted_app, &bundle_dir)
+        .with_context(|| format!(
+            "Move bundle fail: {} -> {}",
+            extracted_app.display(), bundle_dir.display()
+        ))?;
 
-    for i in 0..zip.len() {
-        let mut entry = zip.by_index(i)?;
-        let name = entry.name().to_string();
-        let out_path = dest.join(&name);
+    let _ = std::fs::remove_dir_all(&tmp_extract);
+    let _ = std::fs::remove_file(&tmp_ipa);
 
-        if entry.is_dir() {
-            std::fs::create_dir_all(&out_path)?;
-        } else {
-            if let Some(parent) = out_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let mut data = Vec::new();
-            entry.read_to_end(&mut data)?;
-            std::fs::write(&out_path, data)?;
-        }
-    }
-
+    println!("[sign] OK DONE — {}", bundle_dir.display());
     Ok(())
 }
