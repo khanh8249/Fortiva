@@ -44,6 +44,16 @@ pub fn sign_app(
         .ok_or_else(|| anyhow!("Main app thiếu CFBundleIdentifier"))?
         .to_string();
     
+    // ⚠️ FIX: Set identifier trước khi set entitlements
+    settings.set_identifier(&main_bundle_id)
+        .context("Set identifier fail")?;
+    println!("[sign] Identifier: {}", main_bundle_id);
+    
+    // ⚠️ FIX: Lấy tên executable để set entitlements cho binary
+    let main_exe_name = app.bundle.executable_name()?
+        .to_string();
+    println!("[sign] Main executable: {}", main_exe_name);
+    
     let main_entitlements = extract_entitlements(
         profile_data, 
         special, 
@@ -52,9 +62,18 @@ pub fn sign_app(
     ).context("Extract main entitlements fail")?;
     let main_xml = dict_to_xml_string(&main_entitlements)?;
 
+    // Set cho Main scope (metadata)
     settings
         .set_entitlements_xml(SettingsScope::Main, main_xml.clone())
-        .context("Set main entitlements fail")?;
+        .context("Set main entitlements (Main) fail")?;
+    
+    // ⚠️ FIX: Set cho BINARY PATH — đây là cái iOS check thực sự
+    settings
+        .set_entitlements_xml(
+            SettingsScope::Path(main_exe_name.clone()),
+            main_xml.clone(),
+        )
+        .context("Set main entitlements (Path) fail")?;
 
     println!("[sign] Main entitlements OK ({} keys)", main_entitlements.len());
 
@@ -90,8 +109,16 @@ pub fn sign_app(
         let ext_xml = dict_to_xml_string(&ext_entitlements)?;
 
         settings
-            .set_entitlements_xml(SettingsScope::Path(ext_rel_path.clone()), ext_xml)
-            .with_context(|| format!("Set ext entitlements fail: {}", ext_bundle_id))?;
+            .set_entitlements_xml(SettingsScope::Path(ext_rel_path.clone()), ext_xml.clone())
+            .with_context(|| format!("Set ext entitlements (bundle) fail: {}", ext_bundle_id))?;
+        
+        let ext_exe_name = ext.executable_name()
+            .ok_or_else(|| anyhow!("Ext thiếu CFBundleExecutable: {}", ext_bundle_id))?;
+        let ext_exe_rel = format!("{}/{}", ext_rel_path, ext_exe_name);
+        
+        settings
+            .set_entitlements_xml(SettingsScope::Path(ext_exe_rel.clone()), ext_xml)
+            .with_context(|| format!("Set ext entitlements (binary) fail: {}", ext_bundle_id))?;
 
         println!("[sign] Ext entitlements OK: {}", ext_bundle_id);
         ext_count += 1;

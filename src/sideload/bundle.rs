@@ -16,6 +16,11 @@ pub struct Bundle {
 }
 
 impl Bundle {
+    /// Lấy tên executable từ Info.plist
+    pub fn executable_name(&self) -> Option<&str> {
+        self.app_info.get("CFBundleExecutable")?.as_string()
+    }
+
     pub fn new(bundle_dir: PathBuf) -> Result<Self> {
         let mut bundle_path = bundle_dir;
 

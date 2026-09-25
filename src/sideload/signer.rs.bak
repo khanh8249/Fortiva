@@ -38,13 +38,42 @@ pub fn sign_app(
 
     // 2. Entitlements cho main
     let team_id = extract_team_id(cert);
-    let main_entitlements = extract_entitlements(profile_data, special, &team_id)
-        .context("Extract main entitlements fail")?;
+    
+    // Lấy bundle ID MỚI của main app (đã patch)
+    let main_bundle_id = app.bundle.bundle_identifier()
+        .ok_or_else(|| anyhow!("Main app thiếu CFBundleIdentifier"))?
+        .to_string();
+    
+    // ⚠️ FIX: Set identifier trước khi set entitlements
+    settings.set_identifier(&main_bundle_id)
+        .context("Set identifier fail")?;
+    println!("[sign] Identifier: {}", main_bundle_id);
+    
+    // ⚠️ FIX: Lấy tên executable để set entitlements cho binary
+    let main_exe_name = app.bundle.executable_name()?
+        .to_string();
+    println!("[sign] Main executable: {}", main_exe_name);
+    
+    let main_entitlements = extract_entitlements(
+        profile_data, 
+        special, 
+        &team_id,
+        &main_bundle_id,
+    ).context("Extract main entitlements fail")?;
     let main_xml = dict_to_xml_string(&main_entitlements)?;
 
+    // Set cho Main scope (metadata)
     settings
         .set_entitlements_xml(SettingsScope::Main, main_xml.clone())
-        .context("Set main entitlements fail")?;
+        .context("Set main entitlements (Main) fail")?;
+    
+    // ⚠️ FIX: Set cho BINARY PATH — đây là cái iOS check thực sự
+    settings
+        .set_entitlements_xml(
+            SettingsScope::Path(main_exe_name.clone()),
+            main_xml.clone(),
+        )
+        .context("Set main entitlements (Path) fail")?;
 
     println!("[sign] Main entitlements OK ({} keys)", main_entitlements.len());
 
