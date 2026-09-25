@@ -41,7 +41,9 @@ cbc = { version = "0.1", features = ["alloc"] }
 openssl = { version = "0.10", features = ["vendored"] }
 
 # Codesign
+zsign-core = "0.1"
 apple-codesign = { git = "https://github.com/khanh8249/apple-platform-rs", branch = "main" }
+zsign-rs = "0.1"
 p12-keystore = "0.3"
 
 # Archive

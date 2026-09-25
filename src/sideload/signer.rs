@@ -1,7 +1,7 @@
 // src/sideload/signer.rs
 use anyhow::{anyhow, Context, Result};
-use apple_codesign::cryptography::{InMemoryPrivateKey, PrivateKey};
-use apple_codesign::{SettingsScope, SigningSettings, UnifiedSigner};
+use zsign_rs::{SigningCredentials, ZSign};
+use std::fs;
 use plist::{Dictionary, Value};
 
 use super::application::{Application, SpecialApp};
@@ -21,146 +21,9 @@ pub fn sign_app(
     app: &mut Application,
     cert: &CertificateIdentity,
     profile_data: &[u8],
-    special: &Option<SpecialApp>,
+    _special: &Option<SpecialApp>,
 ) -> Result<()> {
-    println!("[sign] Chuẩn bị SigningSettings...");
-
-    // 1. Setup cert
-    let signing_key = build_signing_key(cert)?;
-    let x509 = build_x509_cert(cert)?;
-
-    let mut settings = SigningSettings::default();
-    settings.set_signing_key(signing_key.as_key_info_signer(), x509);
-    settings.chain_apple_certificates();
-    settings.set_team_id_from_signing_certificate();
-    settings.set_for_notarization(false);
-    settings.set_shallow(true);
-
-    // 2. Entitlements cho main
-    let team_id = extract_team_id(cert);
-    
-    // Lấy bundle ID MỚI của main app (đã patch)
-    let main_bundle_id = app.bundle.bundle_identifier()
-        .ok_or_else(|| anyhow!("Main app thiếu CFBundleIdentifier"))?
-        .to_string();
-    
-    // ⚠️ FIX: Set identifier trước khi set entitlements
-    settings.set_binary_identifier(SettingsScope::Main, main_bundle_id.clone());
-    println!("[sign] Identifier: {}", main_bundle_id);
-    
-    // ⚠️ FIX: Lấy tên executable để set entitlements cho binary
-    let main_exe_name = app.bundle.executable_name()
-        .ok_or_else(|| anyhow!("Main app thiếu CFBundleExecutable"))?
-        .to_string();
-    println!("[sign] Main executable: {}", main_exe_name);
-    
-    let main_entitlements = extract_entitlements(
-        profile_data, 
-        special, 
-        &team_id,
-        &main_bundle_id,
-    ).context("Extract main entitlements fail")?;
-    let main_xml = dict_to_xml_string(&main_entitlements)?;
-
-    // Set cho Main scope (metadata)
-    settings
-        .set_entitlements_xml(SettingsScope::Main, main_xml.clone())
-        .context("Set main entitlements (Main) fail")?;
-    
-    // ⚠️ FIX: Set cho BINARY PATH — đây là cái iOS check thực sự
-    settings
-        .set_entitlements_xml(
-            SettingsScope::Path(main_exe_name.clone()),
-            main_xml.clone(),
-        )
-        .context("Set main entitlements (Path) fail")?;
-
-    println!("[sign] Main entitlements OK ({} keys)", main_entitlements.len());
-
-    // 3. Entitlements riêng cho ext (SettingsScope::Path)
-    let extensions = app.bundle.app_extensions();
-    let mut ext_count = 0;
-
-    for ext in extensions {
-        let ext_bundle_id = match ext.bundle_identifier() {
-            Some(id) => id.to_string(),
-            None => continue,
-        };
-
-        let ext_rel_path = match ext.bundle_dir.strip_prefix(&app.bundle.bundle_dir) {
-            Ok(p) => p.to_string_lossy().to_string(),
-            Err(_) => continue,
-        };
-
-        // Clone entitlements + override app-id
-        let mut ext_entitlements = main_entitlements.clone();
-        let ext_app_id = format!("{}.{}", team_id, ext_bundle_id);
-        ext_entitlements.insert(
-            "application-identifier".to_string(),
-            Value::String(ext_app_id.clone()),
-        );
-
-        if let Some(Value::Array(groups)) = ext_entitlements.get_mut("keychain-access-groups") {
-            if !groups.is_empty() {
-                groups[0] = Value::String(ext_app_id.clone());
-            }
-        }
-
-        let ext_xml = dict_to_xml_string(&ext_entitlements)?;
-
-        settings
-            .set_entitlements_xml(SettingsScope::Path(ext_rel_path.clone()), ext_xml.clone())
-            .with_context(|| format!("Set ext entitlements (bundle) fail: {}", ext_bundle_id))?;
-        
-        let ext_exe_name = ext.executable_name()
-            .ok_or_else(|| anyhow!("Ext thiếu CFBundleExecutable: {}", ext_bundle_id))?;
-        let ext_exe_rel = format!("{}/{}", ext_rel_path, ext_exe_name);
-        
-        settings
-            .set_entitlements_xml(SettingsScope::Path(ext_exe_rel.clone()), ext_xml)
-            .with_context(|| format!("Set ext entitlements (binary) fail: {}", ext_bundle_id))?;
-
-        println!("[sign] Ext entitlements OK: {}", ext_bundle_id);
-        ext_count += 1;
-    }
-
-    if ext_count > 0 {
-        println!("[sign] Đã set entitlements cho {} extension", ext_count);
-    }
-
-    // 4. Xóa _CodeSignature CŨ (nếu có) — tránh hash mismatch
-    cleanup_code_signatures(app)?;
-
-    // 5. Verify profiles nhúng (bắt buộc trước khi sign)
-    verify_profiles(app)?;
-
-    // 5. SIGN — dùng sign_bundle() với temp output
-    let signer = UnifiedSigner::new(settings);
-
-    let main_bundle = app.bundle.bundle_dir.clone();
-    let temp_output = main_bundle.with_extension("app.signed_tmp");
-
-    println!("[sign] Sign bundle → temp...");
-    println!("[sign] Input:  {}", main_bundle.display());
-    println!("[sign] Output: {}", temp_output.display());
-
-    // Xóa temp nếu có
-    if temp_output.exists() {
-        std::fs::remove_dir_all(&temp_output)?;
-    }
-
-    signer
-        .sign_bundle(&main_bundle, &temp_output)
-        .context("sign_bundle fail")?;
-
-    println!("[sign] ✅ Sign OK — move về chỗ cũ");
-
-    // 6. Move temp → main (in-place)
-    std::fs::remove_dir_all(&main_bundle)?;
-    std::fs::rename(&temp_output, &main_bundle)?;
-
-    println!("[sign] ✅ DONE");
-    Ok(())
+    super::zsign_signer::sign_app_with_zsign(app, cert, profile_data)
 }
 
 // ============================================================
