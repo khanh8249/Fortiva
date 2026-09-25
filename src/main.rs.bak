@@ -747,39 +747,22 @@ fn cmd_revoke_certs() -> Result<()> {
         return Ok(());
     }
 
-    // 2. Hỏi user nhập STT cần revoke
+    // 2. Hỏi user nhập ID cần revoke
     println!();
-    let input = prompt_text("Nhập STT cert cần thu hồi (Enter = hủy):");
+    let cert_id = prompt_text("Nhập ID cert cần thu hồi (Enter = hủy):");
 
-    if input.is_empty() {
+    if cert_id.is_empty() {
         log::info("Đã hủy.");
         return Ok(());
     }
 
-    // 3. Parse STT → validate range
-    let idx: usize = match input.trim().parse() {
-        Ok(n) => n,
-        Err(_) => {
-            log::error(&format!("STT không hợp lệ: {}", input));
-            return Ok(());
-        }
-    };
-
-    if idx < 1 || idx > certs.len() {
-        log::error(&format!("STT ngoài phạm vi (1-{})", certs.len()));
-        return Ok(());
-    }
-
-    let cert = &certs[idx - 1];
-    let cert_id = cert.id.clone();
-
-    // 4. Xác nhận
+    // 3. Xác nhận
     if !prompt_yn(&format!("Chắc chắn thu hồi cert {}? (y/n):", cert_id)) {
         log::info("Đã hủy.");
         return Ok(());
     }
 
-    // 5. Revoke — truyền cert ID thật
+    // 4. Revoke
     fortiva::tools::cert_manager::revoke_cert(&mut dev, &mut auth, &cert_id)?;
 
     Ok(())

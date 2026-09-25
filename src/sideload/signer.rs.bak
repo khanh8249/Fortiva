@@ -38,18 +38,8 @@ pub fn sign_app(
 
     // 2. Entitlements cho main
     let team_id = extract_team_id(cert);
-    
-    // Lấy bundle ID MỚI của main app (đã patch)
-    let main_bundle_id = app.bundle.bundle_identifier()
-        .ok_or_else(|| anyhow!("Main app thiếu CFBundleIdentifier"))?
-        .to_string();
-    
-    let main_entitlements = extract_entitlements(
-        profile_data, 
-        special, 
-        &team_id,
-        &main_bundle_id,
-    ).context("Extract main entitlements fail")?;
+    let main_entitlements = extract_entitlements(profile_data, special, &team_id)
+        .context("Extract main entitlements fail")?;
     let main_xml = dict_to_xml_string(&main_entitlements)?;
 
     settings
