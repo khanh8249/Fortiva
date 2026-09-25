@@ -3,7 +3,6 @@ use anyhow::{anyhow, Context, Result};
 use apple_codesign::cryptography::{InMemoryPrivateKey, PrivateKey};
 use apple_codesign::{SettingsScope, SigningSettings, UnifiedSigner};
 use plist::{Dictionary, Value};
-use std::path::Path;
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;

@@ -139,7 +139,7 @@ pub fn build_certificate_chain(
     profile_certs_der: &[Vec<u8>],
     my_cert_der: &[u8],
 ) -> Result<Vec<Vec<u8>>> {
-    use x509_cert::der::Decode;
+    use der::Decode;
     use x509_cert::Certificate;
 
     let mut candidates: Vec<Certificate> = Vec::new();
@@ -194,7 +194,7 @@ pub fn build_certificate_chain(
     }
 
     // 5. Return DER bytes
-    use x509_cert::der::Encode;
+    use der::Encode;
     let mut out = Vec::new();
     for cert in chain {
         let der = cert.to_der()

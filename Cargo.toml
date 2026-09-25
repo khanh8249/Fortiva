@@ -19,7 +19,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
 
 rcgen = "0.13"
 x509-cert = "0.2"
-x509-certificate = "=0.24.0"
+der = { version = "0.7", features = ["oid"] }
+x509-certificate = "=0.25.0"
 # HTTP + JSON
 reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls", "cookies", "gzip"] }
 serde = { version = "1", features = ["derive"] }
