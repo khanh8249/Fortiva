@@ -45,12 +45,12 @@ pub fn sign_app(
         .to_string();
     
     // ⚠️ FIX: Set identifier trước khi set entitlements
-    settings.set_identifier(&main_bundle_id)
-        .context("Set identifier fail")?;
+    settings.set_binary_identifier(SettingsScope::Main, main_bundle_id.clone());
     println!("[sign] Identifier: {}", main_bundle_id);
     
     // ⚠️ FIX: Lấy tên executable để set entitlements cho binary
-    let main_exe_name = app.bundle.executable_name()?
+    let main_exe_name = app.bundle.executable_name()
+        .ok_or_else(|| anyhow!("Main app thiếu CFBundleExecutable"))?
         .to_string();
     println!("[sign] Main executable: {}", main_exe_name);
     
