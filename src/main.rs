@@ -771,7 +771,11 @@ fn cmd_revoke_certs() -> Result<()> {
     }
 
     let cert = &certs[idx - 1];
-    let cert_id = cert.id.clone();
+    let cert_id = cert
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("Cert không có field id"))?
+        .to_string();
 
     // 4. Xác nhận
     if !prompt_yn(&format!("Chắc chắn thu hồi cert {}? (y/n):", cert_id)) {
