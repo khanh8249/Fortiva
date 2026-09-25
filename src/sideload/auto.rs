@@ -50,9 +50,11 @@ pub fn sign_ipa_auto(
     let original_id = app.main_bundle_id()?;
     println!("[3/8] Bundle ID goc: {}", original_id);
 
-    // 5. KHÔNG đổi bundle ID — dùng nguyên (Apple tự thêm team vào app-id)
-    let new_id = original_id.clone();
-    println!("[4/8] Bundle ID: {} (không đổi, team Apple tự thêm)", new_id);
+    // 5. Patch bundle ID — append team (bắt buộc cho free account)
+    let new_id = format!("{}.{}", original_id, team_id);
+    app.update_bundle_id(&original_id, &new_id)?;
+    app.write_all_info()?;  // ⚠️ GHI XUỐNG DISK
+    println!("[4/8] Bundle ID moi: {}", new_id);
 
     // 6. Register App IDs
     let main_name = app.main_app_name()?;

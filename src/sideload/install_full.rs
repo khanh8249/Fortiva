@@ -78,10 +78,11 @@ pub fn install_app_full(
     let cert = CertificateIdentity::from_bundle(&cert_bundle)?;
     println!("     Cert serial: {}", cert.serial_number());
 
-    // 4. KHÔNG đổi bundle ID — Apple tự thêm team vào app-id
-    report(0.25, "Chuẩn bị bundle ID");
-    let new_id = original_id.clone();
-    println!("     Bundle ID: {} (giữ nguyên)", new_id);
+    // 4. Patch bundle ID — append team
+    report(0.25, "Patch bundle ID");
+    let new_id = format!("{}.{}", original_id, team_id);
+    app.update_bundle_id(&original_id, &new_id)?;
+    println!("     New ID: {}", new_id);
 
     // ⚠️ GHI Info.plist xuong disk (KHONG CHI DOI TRONG RAM!)
     println!("     Ghi Info.plist (main + ext + framework)...");
