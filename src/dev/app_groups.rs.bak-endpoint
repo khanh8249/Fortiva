@@ -19,11 +19,11 @@ impl DeveloperClient {
         auth: &mut AnisetteClient,
     ) -> Result<Vec<AppGroup>> {
         let resp = self
-            .request_plist(auth, "ios/listApplicationGroups.action", team_params(self), true)
-            .context("listApplicationGroups that bai")?;
+            .request_plist(auth, "ios/listAppGroups.action", HashMap::new(), true)
+            .context("listAppGroups that bai")?;
 
         let groups = resp
-            .get("applicationGroupList")
+            .get("appGroups")
             .and_then(|v| v.as_array())
             .map(|arr| arr.to_vec())
             .unwrap_or_default();
@@ -84,11 +84,11 @@ impl DeveloperClient {
         params.insert("name".into(), Value::String(sanitized));
 
         let resp = self
-            .request_plist(auth, "ios/addApplicationGroup.action", params, true)
-            .context("addApplicationGroup that bai")?;
+            .request_plist(auth, "ios/addAppGroup.action", params, true)
+            .context("addAppGroup that bai")?;
 
         let group = resp
-            .get("applicationGroup")
+            .get("appGroup")
             .and_then(|v| v.as_dictionary())
             .ok_or_else(|| {
                 anyhow!(
@@ -132,14 +132,6 @@ impl DeveloperClient {
         println!("[dev] Tao App Group: {}", group_id);
         self.create_app_group(auth, group_id, name)
     }
-}
-
-fn team_params(client: &super::client::DeveloperClient) -> HashMap<String, Value> {
-    let mut params = HashMap::new();
-    if let Some(tid) = &client.team_id {
-        params.insert("teamId".into(), Value::String(tid.clone()));
-    }
-    params
 }
 
 fn plist_integer(v: &Value) -> Option<i64> {
