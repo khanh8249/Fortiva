@@ -4,7 +4,7 @@
 use anyhow::{anyhow, Context, Result};
 
 use apple_codesign::{SettingsScope, SigningSettings, UnifiedSigner};
-use x509_certificate::{CapturedX509Certificate, PrivateKey};
+use x509_certificate::{CapturedX509Certificate, InMemoryPrivateKey};
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;
@@ -121,10 +121,12 @@ pub fn sign_app(
 }
 
 /// Load private key PEM → impl KeyInfoSigner.
-fn load_private_key(pem: &str) -> Result<PrivateKey> {
-    PrivateKey::from_pem(pem.as_bytes())
-        .context("Parse private key PEM fail")
+fn load_private_key(pem: &str) -> Result<InMemoryPrivateKey> {
+    // InMemoryPrivateKey nhận PKCS#8 và PKCS#1
+    InMemoryPrivateKey::from_pem(pem.as_bytes())
+        .context("Parse private key PEM fail (thử PKCS8/PKCS1)")
 }
+
 
 
 /// Load certificate PEM → CapturedX509Certificate.
