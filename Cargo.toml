@@ -14,6 +14,8 @@ name = "fortiva"
 path = "src/main.rs"
 
 [dependencies]
+p256 = { version = "0.13", features = ["pem", "pkcs8"] }
+rsa = { version = "0.9", features = ["pem", "pkcs8"] }
 idevice = { version = "=0.1.68", features = ["full"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
 

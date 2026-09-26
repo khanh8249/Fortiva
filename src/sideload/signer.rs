@@ -2,11 +2,9 @@
 // Sign flow dùng apple-codesign crate (Dadoum's fork).
 
 use anyhow::{anyhow, Context, Result};
-use std::path::PathBuf;
 
-use apple_codesign::{
-    SettingsScope, SigningSettings, UnifiedSigner,
-};
+use apple_codesign::{SettingsScope, SigningSettings, UnifiedSigner};
+use x509_certificate::{CapturedX509Certificate, PrivateKey};
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;
@@ -123,24 +121,14 @@ pub fn sign_app(
 }
 
 /// Load private key PEM → impl KeyInfoSigner.
-fn load_private_key(pem: &str) -> Result<Box<dyn KeyInfoSigner + Send + Sync>> {
-    // Thử RSA trước, fallback EC
-    if let Ok(key) = p256::SecretKey::from_sec1_pem(pem) {
-        return Ok(Box::new(key));
-    }
-    if let Ok(key) = p256::SecretKey::from_pkcs8_pem(pem) {
-        return Ok(Box::new(key));
-    }
-    // RSA
-    let rsa_key = rsa::RsaPrivateKey::from_pkcs8_pem(pem)
-        .or_else(|_| rsa::RsaPrivateKey::from_pkcs1_pem(pem))
-        .context("Parse private key fail (thử PKCS8/PKCS1)")?;
-    Ok(Box::new(rsa_key))
+fn load_private_key(pem: &str) -> Result<PrivateKey> {
+    PrivateKey::from_pem(pem.as_bytes())
+        .context("Parse private key PEM fail")
 }
 
 /// Load certificate PEM → CapturedX509Certificate.
-fn load_certificate(pem: &str) -> Result<x509_certificate::CapturedX509Certificate> {
-    x509_certificate::CapturedX509Certificate::from_pem(pem)
+fn load_certificate(pem: &str) -> Result<CapturedX509Certificate> {
+    CapturedX509Certificate::from_pem(pem)
         .context("Parse cert PEM fail")
 }
 
