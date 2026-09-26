@@ -123,10 +123,19 @@ pub fn sign_app(
 
 /// Load private key PEM → impl KeyInfoSigner.
 fn load_private_key(pem: &str) -> Result<InMemoryPrivateKey> {
-    // InMemoryPrivateKey nhận PKCS#8 và PKCS#1
-    InMemoryPrivateKey::from_pem(pem.as_bytes())
-        .context("Parse private key PEM fail (thử PKCS8/PKCS1)")
+    // Decode PEM → DER
+    let pem_data = pem::parse(pem.as_bytes())
+        .context("Parse PEM envelope fail")?;
+    let der = pem_data.contents();
+
+    // Thử PKCS#8 trước (phổ biến), fallback PKCS#1
+    if let Ok(key) = InMemoryPrivateKey::from_pkcs8_der(der) {
+        return Ok(key);
+    }
+    InMemoryPrivateKey::from_pkcs1_der(der)
+        .context("Parse private key DER fail (thử PKCS8/PKCS1)")
 }
+
 
 
 
