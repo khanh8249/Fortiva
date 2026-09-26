@@ -8,6 +8,8 @@ pub mod session;
 pub mod tools;
 pub mod ui;
 pub mod usb;
+pub mod config;
+pub mod cache;
 
 // Nếu có usbmuxd tự viết thì giữ, nếu không thì bỏ
 // pub mod usbmuxd;

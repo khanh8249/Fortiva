@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::constants::{ANISETTE_FALLBACK, ANISETTE_URL, fix_client_info};
+use crate::config::Config;
+use crate::cache::AnisetteCache;
 
 pub struct AnisetteClient {
     url: String,
@@ -16,11 +18,19 @@ pub struct AnisetteClient {
 
 impl AnisetteClient {
     pub fn new(url: Option<&str>) -> Self {
+        let final_url = url
+            .map(|s| s.to_string())
+            .unwrap_or_else(Config::anisette_url);
+
         Self {
-            url: url.unwrap_or(ANISETTE_URL).to_string(),
+            url: final_url,
             cached: None,
             cache_time: None,
         }
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
     pub fn fetch(&mut self, force: bool) -> Result<HashMap<String, String>> {
@@ -28,6 +38,19 @@ impl AnisetteClient {
             if let (Some(cached), Some(t)) = (&self.cached, self.cache_time) {
                 if t.elapsed() < Duration::from_secs(60) {
                     return Ok(cached.clone());
+                }
+            }
+
+            // File cache vinh vien
+            if let Ok(Some(cache)) = AnisetteCache::load() {
+                if cache.server_url == self.url {
+                    self.cached = Some(cache.headers.clone());
+                    self.cache_time = Some(Instant::now());
+                    eprintln!(
+                        "[anisette] Dung file cache ({} ngay truoc)",
+                        cache.age_secs() / 86400
+                    );
+                    return Ok(cache.headers);
                 }
             }
         }
@@ -81,6 +104,10 @@ impl AnisetteClient {
             }
             self.cached = Some(result.clone());
             self.cache_time = Some(Instant::now());
+
+            let _ = AnisetteCache::save_from(result.clone(), srv.clone());
+            eprintln!("[anisette] Da luu cache vinh vien tu {}", srv);
+
             return Ok(result);
         }
 
