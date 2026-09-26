@@ -126,6 +126,7 @@ fn load_private_key(pem: &str) -> Result<PrivateKey> {
         .context("Parse private key PEM fail")
 }
 
+
 /// Load certificate PEM → CapturedX509Certificate.
 fn load_certificate(pem: &str) -> Result<CapturedX509Certificate> {
     CapturedX509Certificate::from_pem(pem)
