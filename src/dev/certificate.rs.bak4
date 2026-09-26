@@ -134,6 +134,7 @@ pub fn decode_cert_content(b64: &str) -> Result<Vec<u8>> {
 
         bundle.save_to_disk(&certs_dir)?;
         Ok(bundle)
+    }
 
 /// Check cert hiện tại có khớp account/team không.
 pub fn cert_matches_account(apple_id: &str, team_id: &str) -> bool {
