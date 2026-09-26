@@ -4,7 +4,8 @@
 use anyhow::{anyhow, Context, Result};
 
 use apple_codesign::{SettingsScope, SigningSettings, UnifiedSigner};
-use x509_certificate::{CapturedX509Certificate, InMemoryPrivateKey};
+use apple_codesign::cryptography::InMemoryPrivateKey;
+use x509_certificate::CapturedX509Certificate;
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;
