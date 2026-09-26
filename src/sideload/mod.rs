@@ -7,7 +7,6 @@ pub mod entitlements;
 pub mod install_full;      // ← MỚI
 pub mod repack;            // ← MỚI
 pub mod signer;
-pub mod selfsign;
 pub mod sideloader;
 
 pub use auto::{sign_ipa_auto, sideload_full};

@@ -1,63 +1,15 @@
+// src/sideload/signer.rs
+// Sign flow dùng apple-codesign crate (Dadoum's fork).
+
 use anyhow::{anyhow, Context, Result};
-use std::path::Path;
+use std::path::PathBuf;
+
+use apple_codesign::{
+    SettingsScope, SigningSettings, UnifiedSigner,
+};
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;
-use super::selfsign;
-
-fn sign_bundle_with_cr(
-    bundle_dir: &Path,
-    binary_path: &Path,
-    bundle_id: &str,
-    team_id: &str,
-    entitlements_xml: &[u8],
-    info_plist: Option<&[u8]>,
-    is_main: bool,
-    cert: &CertificateIdentity,
-) -> Result<()> {
-    selfsign::sign_binary_in_place(
-        binary_path, bundle_id, team_id,
-        entitlements_xml, info_plist, None, cert,
-    )?;
-
-    let cs_dir = bundle_dir.join("_CodeSignature");
-    std::fs::create_dir_all(&cs_dir)?;
-    let cr_path = cs_dir.join("CodeResources");
-
-    let mut prev_hash: Option<Vec<u8>> = None;
-
-    for i in 1..=5 {
-        let exe_name = binary_path.file_name()
-            .and_then(|n| n.to_str());
-        let cr_bytes = selfsign::code_resources::build(bundle_dir, is_main, exe_name)?;
-        std::fs::write(&cr_path, &cr_bytes)?;
-
-        use sha2::{Digest, Sha256};
-        let cur_hash = {
-            let mut h = Sha256::new();
-            h.update(&cr_bytes);
-            h.finalize().to_vec()
-        };
-
-        println!("[sign] CR loop {}: {} bytes", i, cr_bytes.len());
-
-        if let Some(ref p) = prev_hash {
-            if p == &cur_hash {
-                println!("[sign] CR converged at loop {}", i);
-                return Ok(());
-            }
-        }
-        prev_hash = Some(cur_hash);
-
-        selfsign::sign_binary_in_place(
-            binary_path, bundle_id, team_id,
-            entitlements_xml, info_plist, Some(&cr_bytes), cert,
-        )?;
-    }
-
-    println!("[sign] CR not converged after 5 loops");
-    Ok(())
-}
 
 pub fn sign_app(
     app: &mut Application,
@@ -66,70 +18,165 @@ pub fn sign_app(
     ext_profiles: &[(String, Vec<u8>)],
     _special: &Option<SpecialApp>,
 ) -> Result<()> {
-    println!("[sign] === sign_app ===");
+    println!("[sign] === sign_app (apple-codesign) ===");
+
     let bundle_dir = app.bundle.bundle_dir.clone();
-    if !bundle_dir.exists() { return Err(anyhow!("no bundle")); }
-    let sc_info = bundle_dir.join("SC_Info");
-    if sc_info.exists() { std::fs::remove_dir_all(&sc_info).ok(); }
-    let team_id = cert.machine_id.clone();
-
-    let exts: Vec<_> = app.bundle.app_extensions().iter().cloned().collect();
-
-    for ext in &exts {
-        let ext_bundle_id = match ext.bundle_identifier() { Some(id) => id.to_string(), None => continue };
-        let ext_exe_name = match ext.executable_name() { Some(n) => n.to_string(), None => continue };
-        let ext_exe = ext.bundle_dir.join(&ext_exe_name);
-        let ext_dir = ext.bundle_dir.clone();
-
-        println!("[sign] Ext: {}", ext_bundle_id);
-        let ext_profile = ext_profiles.iter().find(|(id, _)| id == &ext_bundle_id)
-            .map(|(_, p)| p.as_slice())
-            .ok_or_else(|| anyhow!("Ext {} missing profile", ext_bundle_id))?;
-        std::fs::write(ext_dir.join("embedded.mobileprovision"), ext_profile)?;
-        let ext_ent = extract_entitlements_xml(ext_profile)?;
-        let ext_info = std::fs::read(ext_dir.join("Info.plist")).ok();
-
-        sign_bundle_with_cr(&ext_dir, &ext_exe, &ext_bundle_id, &team_id,
-            &ext_ent, ext_info.as_deref(), false, cert)?;
-        println!("[sign] Ext OK: {}", ext_bundle_id);
+    if !bundle_dir.exists() {
+        return Err(anyhow!("Bundle dir không tồn tại: {}", bundle_dir.display()));
     }
 
-    let main_bundle_id = app.bundle.bundle_identifier().ok_or_else(|| anyhow!("no bundleid"))?.to_string();
-    let main_exe_name = app.bundle.executable_name().ok_or_else(|| anyhow!("no exe"))?.to_string();
-    let main_exe = bundle_dir.join(&main_exe_name);
-    println!("[sign] Main: {}", main_bundle_id);
+    // Xóa SC_Info (FairPlay)
+    let sc_info = bundle_dir.join("SC_Info");
+    if sc_info.exists() {
+        println!("[sign] Xóa SC_Info/");
+        std::fs::remove_dir_all(&sc_info).ok();
+    }
 
-    let main_info = std::fs::read(bundle_dir.join("Info.plist"))?;
-    std::fs::write(bundle_dir.join("embedded.mobileprovision"), profile_data)?;
-    let main_ent = extract_entitlements_xml(profile_data)?;
+    // ─────────────────────────────────────────────
+    // 1. Nhúng profile vào bundle TRƯỚC khi sign
+    // ─────────────────────────────────────────────
+    std::fs::write(
+        bundle_dir.join("embedded.mobileprovision"),
+        profile_data,
+    ).context("Ghi main profile fail")?;
+    println!("[sign] Main profile: {} bytes", profile_data.len());
 
-    sign_bundle_with_cr(&bundle_dir, &main_exe, &main_bundle_id, &team_id,
-        &main_ent, Some(&main_info), true, cert)?;
-    println!("[sign] Main OK");
-    println!("[sign] DONE");
+    for ext in app.bundle.app_extensions() {
+        let ext_id = match ext.bundle_identifier() {
+            Some(id) => id.to_string(),
+            None => continue,
+        };
+        let ext_profile = ext_profiles.iter()
+            .find(|(id, _)| id == &ext_id)
+            .map(|(_, p)| p.as_slice())
+            .ok_or_else(|| anyhow!("Ext {} thiếu profile riêng", ext_id))?;
+
+        std::fs::write(
+            ext.bundle_dir.join("embedded.mobileprovision"),
+            ext_profile,
+        ).with_context(|| format!("Ghi ext profile fail: {}", ext_id))?;
+        println!("[sign] Ext profile: {} ({} bytes)", ext_id, ext_profile.len());
+    }
+
+    // ─────────────────────────────────────────────
+    // 2. Setup SigningSettings
+    // ─────────────────────────────────────────────
+    let mut settings = SigningSettings::default();
+
+    // Load private key
+    let private_key = load_private_key(&cert.key_pem)?;
+
+    // Load signing certificate
+    let signing_cert = load_certificate(&cert.cert_pem)?;
+
+    settings.set_signing_key(&private_key, signing_cert);
+
+    // Tự động chain WWDR G3 + Root CA
+    settings.chain_apple_certificates();
+    println!("[sign] Cert chain tự động (WWDR G3 + Root)");
+
+    // Set team ID từ certificate
+    if let Some(team_id) = settings.set_team_id_from_signing_certificate() {
+        println!("[sign] Team ID: {}", team_id);
+    }
+
+    // ─────────────────────────────────────────────
+    // 3. Entitlements cho MAIN + EXTENSIONS
+    // ─────────────────────────────────────────────
+    let main_ent_xml = extract_entitlements_xml_string(profile_data)?;
+    settings.set_entitlements_xml(SettingsScope::Main, main_ent_xml)?;
+    println!("[sign] Main entitlements set");
+
+    for ext in app.bundle.app_extensions() {
+        let ext_id = match ext.bundle_identifier() {
+            Some(id) => id.to_string(),
+            None => continue,
+        };
+        let ext_profile = ext_profiles.iter()
+            .find(|(id, _)| id == &ext_id)
+            .map(|(_, p)| p.as_slice());
+        if let Some(ext_prof) = ext_profile {
+            let ext_ent_xml = extract_entitlements_xml_string(ext_prof)?;
+            let rel_path = ext.bundle_dir
+                .strip_prefix(&bundle_dir)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| ext_id.clone());
+
+            settings.set_entitlements_xml(
+                SettingsScope::Path(rel_path.clone()),
+                ext_ent_xml,
+            )?;
+            println!("[sign] Ext entitlements: {}", rel_path);
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // 4. Sign toàn bộ bundle (tự động bottom-up)
+    // ─────────────────────────────────────────────
+    println!("[sign] Bắt đầu sign bundle...");
+    let signer = UnifiedSigner::new(settings);
+    signer.sign_path_in_place(&bundle_dir)
+        .context("UnifiedSigner fail")?;
+
+    println!("[sign] ✅ DONE");
     Ok(())
 }
 
-fn extract_entitlements_xml(profile_data: &[u8]) -> Result<Vec<u8>> {
-    use plist::Value;
-    let start = find_sub(profile_data, b"<plist");
-    let end = rfind_sub(profile_data, b"</plist>");
-    let (s, e) = match (start, end) {
-        (Some(s), Some(e)) => (s, e + 8),
-        _ => return Err(anyhow!("no plist")),
-    };
-    let plist: Value = plist::from_bytes(&profile_data[s..e])?;
-    let ent = plist.as_dictionary().ok_or_else(|| anyhow!("not dict"))?
-        .get("Entitlements").and_then(|v| v.as_dictionary())
-        .ok_or_else(|| anyhow!("no ent"))?;
-    let mut buf = Vec::new();
-    plist::to_writer_xml(&mut buf, &Value::Dictionary(ent.clone()))?;
-    Ok(buf)
+/// Load private key PEM → impl KeyInfoSigner.
+fn load_private_key(pem: &str) -> Result<Box<dyn KeyInfoSigner + Send + Sync>> {
+    // Thử RSA trước, fallback EC
+    if let Ok(key) = p256::SecretKey::from_sec1_pem(pem) {
+        return Ok(Box::new(key));
+    }
+    if let Ok(key) = p256::SecretKey::from_pkcs8_pem(pem) {
+        return Ok(Box::new(key));
+    }
+    // RSA
+    let rsa_key = rsa::RsaPrivateKey::from_pkcs8_pem(pem)
+        .or_else(|_| rsa::RsaPrivateKey::from_pkcs1_pem(pem))
+        .context("Parse private key fail (thử PKCS8/PKCS1)")?;
+    Ok(Box::new(rsa_key))
 }
 
-fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    hay.windows(needle.len()).position(|w| w == needle)
+/// Load certificate PEM → CapturedX509Certificate.
+fn load_certificate(pem: &str) -> Result<x509_certificate::CapturedX509Certificate> {
+    x509_certificate::CapturedX509Certificate::from_pem(pem)
+        .context("Parse cert PEM fail")
 }
-fn rfind_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    hay.windows(needle.len()).rposition(|w| w == needle)
+
+/// Extract entitlements XML từ profile.
+fn extract_entitlements_xml_string(profile_data: &[u8]) -> Result<String> {
+    use plist::Value;
+
+    let start = find_subsequence(profile_data, b"<plist");
+    let end = rfind_subsequence(profile_data, b"</plist>");
+
+    let (start, end) = match (start, end) {
+        (Some(s), Some(e)) => (s, e + b"</plist>".len()),
+        _ => return Err(anyhow!("Không tìm thấy <plist> trong profile")),
+    };
+
+    let plist: Value = plist::from_bytes(&profile_data[start..end])
+        .context("Parse profile plist fail")?;
+
+    let entitlements = plist
+        .as_dictionary()
+        .ok_or_else(|| anyhow!("Profile plist không phải dict"))?
+        .get("Entitlements")
+        .and_then(|v| v.as_dictionary())
+        .ok_or_else(|| anyhow!("Profile thiếu Entitlements"))?;
+
+    let mut buf = Vec::new();
+    plist::to_writer_xml(&mut buf, &Value::Dictionary(entitlements.clone()))
+        .context("Serialize entitlements XML fail")?;
+
+    String::from_utf8(buf).context("Entitlements XML không phải UTF-8")
+}
+
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+fn rfind_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).rposition(|w| w == needle)
 }
