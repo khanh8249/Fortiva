@@ -91,6 +91,7 @@ pub fn sign_app(
         }
         Some(SpecialApp::AltStore) => Some("group.com.AltStore.AltStore"),
         Some(SpecialApp::LiveContainer) => Some("group.com.LiveContainer.LiveContainer"),
+        Some(SpecialApp::StikStore) => None,   // StikStore không cần App Group
         None => None,
     };
 

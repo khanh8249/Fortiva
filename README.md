@@ -3,9 +3,8 @@
 > iOS sideload tool written in Rust — ký và cài IPA lên iPhone không cần jailbreak, chạy trên Termux/Android.
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org)
-[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20android-green)]()
-
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/khanh8249/Fortiva/blob/main/LICENSE)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20android-green)](https://github.com/khanh8249/Fortiva#yêu-cầu)
 ## Tính năng
 
 - 🔐 **Login Apple ID** — SRP-6a variant Apple + GSA + 2FA trusted device
@@ -14,7 +13,7 @@
 - 🧩 **Hỗ trợ extension** — ký đúng thứ tự bottom-up
 - 🎯 **Special apps** — SideStore, AltStore, LiveContainer, StikStore
 - 🔑 **Auto cert** — tự tạo cert mới khi đổi account (không bị `0xe8008015`)
-- 🌐 **Cross-platform** — Linux, macOS, Android (Termux)
+- 🌐 **Cross-platform** — Linux, Android (Termux)
 
 ## Yêu cầu
 
@@ -30,13 +29,6 @@ Ubuntu/Debian:
 
 ```bash
 sudo apt install build-essential pkg-config libssl-dev
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-macOS:
-
-```bash
-xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
@@ -56,7 +48,16 @@ Sử dụng
 ```bash
 ./fortiva
 ```
-
+**Setup:linux-android**
+**yêu cầu bắt buộc khi chạy tool**
+dành cho termux
+```bash
+pkg update && pkg upgrade -y && pkg install usbmuxd libimobiledevice -y
+```
+Dành cho linux
+```bash
+apt-get update && apt-get install usbmuxd libimobiledevice6 libimobiledevice-utils -y
+```
 Menu chính:
 
 ```
@@ -155,20 +156,14 @@ Credits
 
 Dự án tham khảo từ:
 
-· apple-codesign (indygreg) — crate Rust chính cho việc ký
-· apple-platform-rs fork — fork dùng trong Fortiva
-· Sideloader (Dadoum) — tool D, tham khảo cấu trúc sideload
-· isideload (Dadoum) — Rust port của Sideloader
-· pypush — SRP-6a variant Apple
-· libgsa — GSA protocol
-· anisette-v3-server (Dadoum) — anisette server
-· Impactor (khcrysalis) — certificate handling
-· zsign (zhlynn) — C++ code signing (reference)
-· idevice (jkcoxson) — pure Rust device communication
-· libimobiledevice — cross-platform iOS device library
-· AltStore (Riley Testut) — concept sideload
-· SideStore — fork AltStore với JIT-less
-· LiveContainer (khanhduytran0) — chạy app iOS không cài
+· - [apple-codesign](https://github.com/indygreg/apple-platform-rs) (indygreg) — Rust crate chính cho việc ký
+· - [apple-platform-rs fork](https://github.com/khanh8249/apple-platform-rs) — fork dùng trong Fortiva
+· - [Sideloader](https://github.com/Dadoum/Sideloader) (Dadoum) — tool D, reference
+· - [Provision](https://github.com/Dadoum/Provision) (Dadoum) — anisette + libprovision
+· - [auth-reference](https://github.com/khanh8249/sidedroid) — GSA protocol 
+· - [zsign](https://github.com/zhlynn/zsign) (zhlynn) — C++ code signing reference
+· - [idevice](https://github.com/jkcoxson/idevice) (jkcoxson) — pure Rust device communication
+· - [libimobiledevice](https://libimobiledevice.org/) — cross-platform iOS library
 
 License
 
@@ -181,7 +176,7 @@ Fortiva được phát hành dưới GNU General Public License v3.0 (GPL-3.0).
 · ✅ Có thể fork, sửa, phân phối lại (với điều kiện giữ GPL v3)
 · ✅ Tool main.py cũng mở — developer có thể debug
 
-Xem LICENSE để biết chi tiết.
+Xem [LICENSE](https://github.com/khanh8249/Fortiva/blob/main/LICENSE) để biết chi tiết.
 
 Disclaimer
 
@@ -199,4 +194,3 @@ Trước khi push, chạy:
 python3 main.py ./src      # Verify syntax sạch
 cargo check --release      # Verify build sạch
 ```
-
