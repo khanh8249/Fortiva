@@ -6,7 +6,6 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::auth::error::{SessionExpiredError, is_session_expired_response};
 use crate::auth::anisette::AnisetteClient;
 
 pub const BASE_URL_QH65B2: &str = "https://developerservices2.apple.com/services/QH65B2";
@@ -191,18 +190,6 @@ impl DeveloperClient {
                         eprintln!("[DevAPI] anisette expired (1100) - refresh...");
                         self.anisette_cache.get(auth, true)?;
                         continue;
-                    }
-
-                    // ⭐ Check session expired
-                    let user_string = dict.get("userString")
-                        .and_then(|v| v.as_string())
-                        .unwrap_or("");
-                    let http_status = status.as_u16();
-                    if is_session_expired_response(http_status, result_code, user_string) {
-                        eprintln!("[DevAPI] ⚠️ Session expired: {}", user_string);
-                        return Err(anyhow::Error::new(
-                            SessionExpiredError::new(user_string.to_string())
-                        ));
                     }
 
                     return Ok(dict);

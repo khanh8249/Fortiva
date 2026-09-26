@@ -362,49 +362,6 @@ fn cmd_test_anisette() -> Result<()> {
 //  FEATURE 3: TEST CSR
 // ============================================================
 
-fn cmd_test_csr() -> Result<()> {
-    theme::clear_screen();
-    log::header("TEST TẠO CSR");
-
-    let cn_input = prompt_text("Common Name (Enter = 'fortiva-test'):");
-    let cn = if cn_input.is_empty() { "fortiva-test" } else { &cn_input };
-
-    println!();
-    let sp = spinner::new("Đang sinh RSA key + CSR...");
-    let rsa = openssl::rsa::Rsa::generate(2048)?;
-    let pkey = openssl::pkey::PKey::from_rsa(rsa)?;
-
-    use openssl::hash::MessageDigest;
-    use openssl::x509::{X509NameBuilder, X509ReqBuilder};
-
-    let mut name_builder = X509NameBuilder::new()?;
-    name_builder.append_entry_by_text("CN", cn)?;
-    let name = name_builder.build();
-
-    let mut req_builder = X509ReqBuilder::new()?;
-    req_builder.set_subject_name(&name)?;
-    req_builder.set_pubkey(&pkey)?;
-    req_builder.sign(&pkey, MessageDigest::sha256())?;
-
-    let pem = req_builder.build().to_pem()?;
-    let pem_str = String::from_utf8(pem)?;
-
-    sp.finish_and_clear();
-    log::success(&format!("CSR tạo thành công (CN='{}')", cn));
-    println!();
-
-    let lines: Vec<String> = pem_str
-        .lines()
-        .take(15)
-        .map(|l| theme::muted(l))
-        .collect();
-    theme::box_section("CSR (PEM)", &lines);
-    if pem_str.lines().count() > 15 {
-        log::debug(&format!("... +{} dòng nữa", pem_str.lines().count() - 15));
-    }
-
-    Ok(())
-}
 
 // ============================================================
 //  SIGN HELPERS
@@ -932,60 +889,6 @@ fn dirs_home_certs_exists() -> bool {
 //  FEATURE: SIDELOAD (CYDIA IMPACTOR MODE)
 // ============================================================
 
-fn cmd_sideload_impactor() -> Result<()> {
-    theme::clear_screen();
-    log::header("SIDELOAD - CYDIA IMPACTOR MODE");
-
-    let ipa = prompt_text("IPA path:");
-    if ipa.is_empty() {
-        return Err(anyhow!("IPA path rong"));
-    }
-    let ipa_path = PathBuf::from(shellexpand(&ipa));
-    if !ipa_path.exists() {
-        return Err(anyhow!("IPA khong ton tai: {}", ipa_path.display()));
-    }
-
-    let apple_id = prompt_text("Apple ID:");
-    if apple_id.is_empty() {
-        return Err(anyhow!("Apple ID rong"));
-    }
-
-    let password = prompt_password("Password:");
-    if password.is_empty() {
-        return Err(anyhow!("Password rong"));
-    }
-
-    println!();
-    log::info("Bat dau sideload full auto...");
-    println!();
-
-    let signed_path = fortiva::sideload::auto::sideload_full(
-        &ipa_path,
-        &apple_id,
-        &password,
-    )?;
-
-    println!();
-    log::success(&format!("Signed: {}", signed_path.display()));
-
-    if prompt_yn("Install len iPhone? (y/n):") {
-        println!();
-        log::info("Dang cai len iPhone...");
-        let udid = fortiva::usb::first_udid()?;
-        // install_app_bundle la async — can block_on
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| anyhow!("Tokio runtime fail: {}", e))?;
-        rt.block_on(async {
-            fortiva::install::install_app_bundle(
-                signed_path.to_str().unwrap_or(""),
-                &udid,
-            ).await
-        })?;
-        log::success("Da cai thanh cong!");
-    }
-
-    Ok(())
-}
 
 // ============================================================
 //  FEATURE: SIGN + INSTALL (ILOADER MODE)
@@ -1013,7 +916,28 @@ fn cmd_sign_auto() -> Result<()> {
         return Err(anyhow!("IPA khong ton tai: {}", ipa_path.display()));
     }
 
-    let signed = fortiva::sideload::auto::sign_ipa_auto(&ipa_path, &session)?;
+    let signed = match fortiva::sideload::auto::sign_ipa_auto(&ipa_path, &session) {
+        Ok(path) => path,
+        Err(e) if fortiva::auth::error::is_session_expired_error(&e) => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════╗");
+            println!("║  ⚠️  SESSION APPLE ĐÃ HẾT HẠN                            ║");
+            println!("║  Vui lòng login lại để tiếp tục                          ║");
+            println!("╚══════════════════════════════════════════════════════════╝");
+            println!();
+
+            // Xóa session cũ
+            let _ = fortiva::session::Session::clear();
+            log::info("Đã xóa session cũ");
+            println!();
+            println!("  » Chạy menu 1 (Login Apple ID) để login lại");
+            println!();
+
+            pause();
+            return Ok(());
+        }
+        Err(e) => return Err(e),
+    };
 
     println!();
     log::success(&format!("Signed: {}", signed.display()));
@@ -1049,16 +973,14 @@ fn main() {
         let choice = prompt_choice();
 
         let result = match choice.as_str() {
-            "1" => cmd_login_apple_id(),
-            "2" => cmd_test_anisette(),
-            "3" => cmd_test_csr(),
-            "4" => cmd_sideload_impactor(),
-            "5" => cmd_sign_auto(),
-            "6" => cmd_setup_sidestore_pairing(),
-            "7" => cmd_device_manager(),
-            "8" => cmd_revoke_certs(),
-            "9" => cmd_device_info(),
-            "10" | "logout" => cmd_logout(),
+            "1" => cmd_sign_auto(),
+            "2" => cmd_login_apple_id(),
+            "3" => cmd_test_anisette(),
+            "4" => cmd_setup_sidestore_pairing(),
+            "5" => cmd_device_manager(),
+            "6" => cmd_revoke_certs(),
+            "7" => cmd_device_info(),
+            "8" | "logout" => cmd_logout(),
             "0" | "" => {
                 theme::clear_screen();
                 println!();

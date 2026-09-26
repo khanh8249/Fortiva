@@ -1,4 +1,5 @@
 // src/auth/mod.rs
+pub mod error;
 pub mod anisette;
 pub mod crypto;
 pub mod gsa;

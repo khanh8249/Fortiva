@@ -28,25 +28,21 @@ pub fn print_logo() {
 
 pub fn print_menu() {
     println!("{}┌─────────────────────────────────────────────┐{}", MUTED, RESET);
-    println!("{}│{}  [{}1{}]  🔐  Login Apple ID                     {}│{}",
+    println!("{}│{}  [{}1{}]  📦  Sideload & Install IPA             {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}2{}]  🌐  Test anisette server               {}│{}",
+    println!("{}│{}  [{}2{}]  🔐  Login Apple ID                     {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}3{}]  📜  Test tạo CSR                       {}│{}",
+    println!("{}│{}  [{}3{}]  🌐  Custom Anisette Server             {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}4{}]  🚀  Sideload (Cydia Impactor)         {}│{}",
+    println!("{}│{}  [{}4{}]  🔗  Setup SideStore pairing           {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}5{}]  📦  Sign + Install (iLoader)          {}│{}",
+    println!("{}│{}  [{}5{}]  📱  Quản lý thiết bị                    {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}6{}]  🔗  Setup SideStore pairing               {}│{}",
+    println!("{}│{}  [{}6{}]  🔑  Thu hồi certificate                {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}7{}]  📱  Quản lý thiết b devị                   {}│{}",
+    println!("{}│{}  [{}7{}]  📲  Device info                         {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}8{}]  🔑  Thu hồi certificate                {}│{}",
-        MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}9{}]  📲  Device info                         {}│{}",
-        MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
-    println!("{}│{}  [{}10{}] 🚪  Logout                            {}│{}",
+    println!("{}│{}  [{}8{}]  🚪  Logout                            {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
     println!("{}│{}  [{}0{}]  ❌  Thoát                              {}│{}",
         MUTED, RESET, PRIMARY, RESET, MUTED, RESET);
