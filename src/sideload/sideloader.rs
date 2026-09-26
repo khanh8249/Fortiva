@@ -46,7 +46,7 @@ impl Sideloader {
         // ============================================================
         // BƯỚC 2: Load profile
         // ============================================================
-        let profile_data = fs::read(profile_path)
+        let mut profile_data = fs::read(profile_path)
             .with_context(|| format!("Đọc profile thất bại: {}", profile_path.display()))?;
 
         // ============================================================
@@ -132,32 +132,7 @@ impl Sideloader {
                     }
                 }
 
-                // Tải profile RIÊNG cho từng extension qua Apple Developer API
-                if !extension_app_ids.is_empty() {
-                    println!("\n[sideload] Tải profile cho extensions...");
-                    for (ext_id, ext_app_id) in &extension_app_ids {
-                        match self.dev.download_team_provisioning_profile(
-                            &mut self.anisette,
-                            ext_app_id,
-                        ) {
-                            Ok(profile) => {
-                                println!(
-                                    "[sideload] ✅ Ext profile OK: {} ({} bytes)",
-                                    ext_id,
-                                    profile.encoded_profile.len()
-                                );
-                                extension_profiles
-                                    .push((ext_id.clone(), profile.encoded_profile));
-                            }
-                            Err(e) => {
-                                println!(
-                                    "[sideload] ⚠️ Ext profile fail ({}): {}",
-                                    ext_id, e
-                                );
-                            }
-                        }
-                    }
-                }
+                // ⚠️ Profile download SAU khi App Group assign (xem bước 7.5)
             }
         }
 
@@ -207,6 +182,58 @@ impl Sideloader {
                 Err(e) => {
                     println!("[sideload] ⚠️ Không tạo được App Group: {}", e);
                     group_identifier = Some(grp_id); // vẫn dùng cho Info.plist
+                }
+            }
+        }
+
+        // ============================================================
+        // BƯỚC 7.5: RE-DOWNLOAD profile SAU khi App Group đã assign
+        // ⚠️ Profile PHẢI download sau bước 7 để có App Group entitlement
+        // ============================================================
+        if special.is_some() && main_app_id.is_some() {
+            println!("\n[sideload] ⏳ Chờ Apple update App Group...");
+            std::thread::sleep(std::time::Duration::from_secs(3));
+
+            // Re-download main profile
+            if let Some(ref main_id) = main_app_id {
+                println!("[sideload] 🔄 Re-download main profile...");
+                match self.dev.download_team_provisioning_profile(
+                    &mut self.anisette,
+                    main_id,
+                ) {
+                    Ok(p) => {
+                        println!(
+                            "[sideload] ✅ Main profile mới: {} bytes",
+                            p.encoded_profile.len()
+                        );
+                        profile_data = p.encoded_profile;
+                    }
+                    Err(e) => {
+                        println!("[sideload] ⚠️ Re-download main fail: {}", e);
+                    }
+                }
+            }
+
+            // Re-download extension profiles
+            extension_profiles.clear();
+            println!("[sideload] 🔄 Re-download ext profiles...");
+            for (ext_id, ext_app_id) in &extension_app_ids {
+                match self.dev.download_team_provisioning_profile(
+                    &mut self.anisette,
+                    ext_app_id,
+                ) {
+                    Ok(profile) => {
+                        println!(
+                            "[sideload] ✅ Ext profile mới: {} ({} bytes)",
+                            ext_id,
+                            profile.encoded_profile.len()
+                        );
+                        extension_profiles
+                            .push((ext_id.clone(), profile.encoded_profile));
+                    }
+                    Err(e) => {
+                        println!("[sideload] ⚠️ Re-download ext fail: {}", e);
+                    }
                 }
             }
         }

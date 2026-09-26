@@ -18,10 +18,6 @@ pub struct CertificateBundle {
     pub private_key_pem: String,
     pub csr_pem: String,
     pub machine_id: String,
-    /// Apple ID đã tạo cert này (để check mismatch khi login account mới)
-    pub apple_id: String,
-    /// Team ID của cert (verify khi sign)
-    pub team_id: String,
 }
 
 impl DeveloperClient {
@@ -30,8 +26,6 @@ impl DeveloperClient {
         &mut self,
         auth: &mut AnisetteClient,
         machine_name: &str,
-        apple_id: &str,
-        team_id: &str,
     ) -> Result<Option<CertificateBundle>> {
         eprintln!("[DevAPI] Tạo certificate mới...");
 
@@ -91,8 +85,6 @@ impl DeveloperClient {
             private_key_pem,
             csr_pem,
             machine_id,
-            apple_id: apple_id.to_string(),
-            team_id: team_id.to_string(),
         }))
     }
 }
@@ -187,82 +179,6 @@ pub fn dirs_certs() -> Result<std::path::PathBuf> {
 //  CertificateBundle — SAVE / LOAD
 // ============================================================
 
-impl DeveloperClient {
-    /// Đảm bảo có cert đúng account/team. Nếu cert cũ không khớp → xóa + tạo mới.
-    pub fn ensure_certificate(
-        &mut self,
-        auth: &mut AnisetteClient,
-        machine_name: &str,
-        apple_id: &str,
-        team_id: &str,
-    ) -> Result<CertificateBundle> {
-        let certs_dir = crate::session::Session::dir()?.join("certs");
-        std::fs::create_dir_all(&certs_dir)?;
-
-        // Load cert cũ (nếu có)
-        if let Some(cert) = CertificateBundle::load_latest(&certs_dir)? {
-            let matches = !cert.apple_id.is_empty()
-                && !cert.team_id.is_empty()
-                && cert.apple_id == apple_id
-                && cert.team_id == team_id;
-
-            if !matches {
-                println!("\n[cert] ⚠️  Cert cũ không khớp account/team mới");
-                println!("[cert]    Cert:    {} / {}", cert.apple_id, cert.team_id);
-                println!("[ khôngcert]    Session: {} / {}", apple_id, team_id);
-                println!("[cert]    → Xóa cert cũ để tạo mới");
-                clear tồ_all_certs()?;
-            } else {
-                println!("[cert] ✅ Dùng lại cert cnũ (đúng account/team)");
-                return Ok(cert);
-            }
-        }
-
-        // Tạo mới
-        println!("[cert] Tạo cert mới cho {} / {}", apple_id, team_id);
-        let bundle = self
-            .create_certificate(auth, machine_name, apple_id, team_id)?
-            .ok_or_else(|| anyhow!("create_certificate returned None"))?;
-
-        bundle.save_to_disk(&certs_dir)?;
-        Ok(bundle)
-    }
-}
-
-/// Check cert hiện tại có khớp account/team không.
-pub fn cert_matches_account(apple_id: &str, team_id: &str) -> bool {
-    let certs_dir = match crate::session::Session::dir() {
-        Ok(d) => d.join("certs"),
-        Err(_) => return false,
-    };
-    if !certs_dir.exists() { return false; }
-
-    for entry in std::fs::read_dir(&certs_dir).into_iter().flatten() {
-        let path = match entry { Ok(e) => e.path(), Err(_) => continue };
-        if path.extension().and_then(|s| s.to_str()) != Some("json") { continue; }
-        if let Ok(data) = std::fs::read_to_string(&path) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) {
-                let meta_apple = v.get("apple_id").and_then(|x| x.as_str()).unwrap_or("");
-                let meta_team = v.get("team_id").and_then(|x| x.as_str()).unwrap_or("");
-                if meta_apple.is_empty() || meta_team.is_empty() { return false; }
-                return meta_apple == apple_id && meta_team == team_id;
-            }
-        }
-    }
-    false
-}
-
-/// Xóa toàn bộ cert + key + meta.
-pub fn clear_all_certs() -> Result<()> {
-    let certs_dir = crate::session::Session::dir()?.join("certs");
-    if certs_dir.exists() {
-        std::fs::remove_dir_all(&certs_dir)?;
-    }
-    std::fs::create_dir_all(&certs_dir)?;
-    println!("[cert] ✅ Đã xóa toàn bộ cert cũ");
-    Ok(())
-}
-
 impl CertificateBundle {
     pub fn save_to_disk(&self, dir: &std::path::Path) -> Result<()> {
         let id = self.certificate_id.as_ref()
@@ -279,8 +195,6 @@ impl CertificateBundle {
             "machine_id": self.machine_id,
             "csr_pem": self.csr_pem,
             "saved_at": crate::session::now(),
-            "apple_id": self.apple_id,
-            "team_id": self.team_id,
         });
         std::fs::write(
             dir.join(format!("{}.meta.json", id)),
@@ -302,16 +216,15 @@ impl CertificateBundle {
 
         let cert_content_b64 = std::fs::read_to_string(&cert_path).ok();
         let private_key_pem = std::fs::read_to_string(&key_path)?;
-        let (machine_id, apple_id, team_id) = if meta_path.exists() {
+        let machine_id = if meta_path.exists() {
             let meta_str = std::fs::read_to_string(&meta_path)?;
             let meta: serde_json::Value = serde_json::from_str(&meta_str)?;
-            (
-                meta.get("machine_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                meta.get("apple_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                meta.get("team_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            )
+            meta.get("machine_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
         } else {
-            (String::new(), String::new(), String::new())
+            String::new()
         };
 
         Ok(Some(CertificateBundle {
@@ -320,8 +233,6 @@ impl CertificateBundle {
             private_key_pem,
             csr_pem: String::new(),
             machine_id,
-            apple_id,
-            team_id,
         }))
     }
 
