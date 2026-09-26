@@ -82,30 +82,7 @@ pub fn sign_app(
     // ─────────────────────────────────────────────
     // 3. Entitlements cho MAIN + EXTENSIONS
     // ─────────────────────────────────────────────
-    let mut main_ent_xml = extract_entitlements_xml_string(profile_data)?;
-
-    // ⭐ Chỉ inject App Group cho special apps
-    let app_group_value: Option<&str> = match _special {
-        Some(SpecialApp::SideStore) | Some(SpecialApp::SideStoreLc) => {
-            Some("group.com.SideStore.SideStore")
-        }
-        Some(SpecialApp::AltStore) => Some("group.com.AltStore.AltStore"),
-        Some(SpecialApp::LiveContainer) => Some("group.com.LiveContainer.LiveContainer"),
-        None => None,
-    };
-
-    if let Some(group) = app_group_value {
-        if !main_ent_xml.contains("application-groups") {
-            let inject = format!(
-                "<key>com.apple.security.application-groups</key>\
-<array><string>{}</string></array>",
-                group
-            );
-            main_ent_xml = main_ent_xml.replace("</dict>", &format!("{}</dict>", inject));
-            println!("[sign] Injected App Group (main): {}", group);
-        }
-    }
-
+    let main_ent_xml = extract_entitlements_xml_string(profile_data)?;
     settings.set_entitlements_xml(SettingsScope::Main, main_ent_xml)?;
     println!("[sign] Main entitlements set");
 
@@ -118,20 +95,7 @@ pub fn sign_app(
             .find(|(id, _)| id == &ext_id)
             .map(|(_, p)| p.as_slice());
         if let Some(ext_prof) = ext_profile {
-            let mut ext_ent_xml = extract_entitlements_xml_string(ext_prof)?;
-
-            // ⭐ Extension phải có CÙNG App Group với main
-            if let Some(group) = app_group_value {
-                if !ext_ent_xml.contains("application-groups") {
-                    let inject = format!(
-                        "<key>com.apple.security.application-groups</key>\
-<array><string>{}</string></array>",
-                        group
-                    );
-                    ext_ent_xml = ext_ent_xml.replace("</dict>", &format!("{}</dict>", inject));
-                    println!("[sign] Injected App Group (ext): {}", group);
-                }
-            }
+            let ext_ent_xml = extract_entitlements_xml_string(ext_prof)?;
             let rel_path = ext.bundle_dir
                 .strip_prefix(&bundle_dir)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))

@@ -846,81 +846,27 @@ fn cmd_logout() -> Result<()> {
     theme::clear_screen();
     log::header("ĐĂNG XUẤT");
 
-    let session = Session::load()?;
-    let has_certs = dirs_home_certs_exists();
-
-    match session {
-        Some(s) => {
+    match Session::load() {
+        Ok(Some(s)) => {
             println!("  {} Session hiện tại:", theme::primary("»"));
             println!("     Apple ID: {}", theme::muted(&s.apple_id));
-            println!("     Team ID:  {}", theme::muted(s.team_id.as_deref().unwrap_or("?")));
             println!("     DSID:     {}", theme::muted(&s.dsid));
             println!();
 
-            println!("  {} Sẽ xóa:", theme::warning("⚠"));
-            println!("     - ~/.fortiva/session.json");
-            if has_certs {
-                println!("     - ~/.fortiva/certs/  (cert + private key)");
-            }
-            println!();
-
-            if !prompt_yn("Xóa sạch dữ liệu account này? (y/n):") {
+            if !prompt_yn("Xoá session này? (y/n):") {
                 log::info("Đã hủy.");
                 return Ok(());
             }
 
-            // 1. Xóa session
             Session::clear()?;
-            log::success("✓ Đã xóa session");
-
-            // 2. Xóa certs
-            if has_certs {
-                let home = std::env::var("HOME").unwrap_or_default();
-                let certs_dir = std::path::PathBuf::from(home).join(".fortiva").join("certs");
-                if let Err(e) = std::fs::remove_dir_all(&certs_dir) {
-                    log::error(&format!("Xóa certs fail: {}", e));
-                } else {
-                    let _ = std::fs::create_dir_all(&certs_dir);
-                    log::success("✓ Đã xóa certs/");
-                }
-            }
-
-            println!();
-            log::success("✓ Đã đăng xuất + dọn sạch dữ liệu account cũ");
-            println!("  {} Chạy menu 1 để login account mới.", theme::muted("»"));
+            log::success("✓ Đã đăng xuất");
         }
-        None => {
+        _ => {
             log::info("Chưa có session nào.");
-            // Vẫn cho xóa certs nếu có
-            if has_certs {
-                if prompt_yn("Không có session, nhưng có cert. Xóa certs? (y/n):") {
-                    let home = std::env::var("HOME").unwrap_or_default();
-                    let certs_dir = std::path::PathBuf::from(home).join(".fortiva").join("certs");
-                    let _ = std::fs::remove_dir_all(&certs_dir);
-                    let _ = std::fs::create_dir_all(&certs_dir);
-                    log::success("✓ Đã xóa certs/");
-                }
-            }
         }
     }
 
     Ok(())
-}
-
-/// Check ~/.fortiva/certs/ có file gì không (không phải folder rỗng).
-fn dirs_home_certs_exists() -> bool {
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => return false,
-    };
-    let certs_dir = std::path::PathBuf::from(home).join(".fortiva").join("certs");
-    if !certs_dir.exists() {
-        return false;
-    }
-    match std::fs::read_dir(&certs_dir) {
-        Ok(mut entries) => entries.next().is_some(),
-        Err(_) => false,
-    }
 }
 
 // ============================================================
