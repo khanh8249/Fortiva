@@ -41,7 +41,11 @@ pub fn sign_ipa_auto(
     println!("[1/8] Team: {}", team_id);
 
     // 3. Ensure certificate
-    let cert_bundle = dev.ensure_certificate(&mut anisette, "fortiva")?;
+    // ⭐ Load session
+    let session = crate::session::Session::load()?.ok_or_else(|| anyhow::anyhow!("Chưa login"))?;
+    let apple_id = session.apple_id.clone();
+    let team_id = session.team_id.clone().unwrap_or_default();
+    let cert_bundle = dev.ensure_certificate(&mut anisette, "fortiva", &apple_id, &team_id)?;
     let cert = CertificateIdentity::from_bundle(&cert_bundle)?;
     println!("[2/8] Cert: {}", cert.serial_number());
 

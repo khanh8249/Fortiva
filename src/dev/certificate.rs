@@ -133,8 +133,6 @@ pub fn decode_cert_content(b64: &str) -> Result<Vec<u8>> {
 
 impl DeveloperClient {
     /// Get cert có sẵn hoặc tạo mới. Lưu cả cert + key vào ~/.fortiva/certs/
-    pub fn ensure_certificate(
-        &mut self,
         auth: &mut AnisetteClient,
         machine_name: &str,
     ) -> Result<CertificateBundle> {
@@ -209,9 +207,9 @@ impl DeveloperClient {
             if !matches {
                 println!("\n[cert] ⚠️  Cert cũ không khớp account/team mới");
                 println!("[cert]    Cert:    {} / {}", cert.apple_id, cert.team_id);
-                println!("[ khôngcert]    Session: {} / {}", apple_id, team_id);
+                println!("[cert]    Session: {} / {}", apple_id, team_id);
                 println!("[cert]    → Xóa cert cũ để tạo mới");
-                clear tồ_all_certs()?;
+                clear_all_certs()?;
             } else {
                 println!("[cert] ✅ Dùng lại cert cnũ (đúng account/team)");
                 return Ok(cert);

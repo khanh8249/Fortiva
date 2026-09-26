@@ -74,7 +74,14 @@ pub fn install_app_full(
         &MaxCertsBehavior::AutoRevokeOldest,
     )?;
 
-    let cert_bundle = dev.ensure_certificate(&mut anisette, "fortiva")?;
+    // Load session de lay apple_id + team_id
+    let session = crate::session::Session::load()?
+        .ok_or_else(|| anyhow::anyhow!("Chua login — can login truoc"))?;
+    let apple_id = session.apple_id.clone();
+    let team_id_sess = session.team_id.clone().unwrap_or_default();
+    let cert_bundle = dev.ensure_certificate(
+        &mut anisette, "fortiva", &apple_id, &team_id_sess
+    )?;
     let cert = CertificateIdentity::from_bundle(&cert_bundle)?;
     println!("     Cert serial: {}", cert.serial_number());
 
