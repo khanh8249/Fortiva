@@ -8,7 +8,7 @@ use crate::auth::srp::SrpFlow;
 use crate::auth::twofa::TwoFAHandler;
 use crate::dev::DeveloperClient;
 use crate::session::Session;
-use crate::sideload::application::Application;
+use crate::sideload::application::{Application, SpecialApp};
 use crate::sideload::cert_identity::CertificateIdentity;
 use crate::sideload::signer::sign_app;
 use crate::usb;
@@ -76,6 +76,47 @@ pub fn sign_ipa_auto(
                     ext_app_ids.push((ext_id_str, id));
                 }
                 Err(e) => println!("     WARN Ext fail: {}", e),
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // BƯỚC 5.5: App Group (chỉ special app)
+    // ════════════════════════════════════════════════════════════
+    let special_app = app.get_special_app();
+    if let Some(ref sp) = special_app {
+        let app_group_value = match sp {
+            SpecialApp::SideStore | SpecialApp::SideStoreLc => {
+                Some(format!("group.{}", new_id))
+            }
+            SpecialApp::AltStore => Some(format!("group.{}", new_id)),
+            SpecialApp::LiveContainer => Some(format!("group.{}", new_id)),
+            _ => None,
+        };
+
+        if let Some(group_id) = app_group_value {
+            println!("[5.5/8] App Group: {}", group_id);
+
+            match dev.ensure_app_group(&mut anisette, &group_id, &main_name) {
+                Ok(group) => {
+                    println!("     App Group registered: {}", group.group_id);
+
+                    match dev.assign_app_group(&mut anisette, &main_app_id, &group.group_id) {
+                        Ok(_) => println!("     Assigned to main"),
+                        Err(e) => println!("     Assign main fail: {}", e),
+                    }
+
+                    for (ext_id, ext_app_id) in &ext_app_ids {
+                        match dev.assign_app_group(&mut anisette, ext_app_id, &group.group_id) {
+                            Ok(_) => println!("     Assigned to ext: {}", ext_id),
+                            Err(e) => println!("     Assign ext fail ({}): {}", ext_id, e),
+                        }
+                    }
+
+                    println!("     Cho Apple update (3s)...");
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                }
+                Err(e) => println!("     App Group register fail: {}", e),
             }
         }
     }
