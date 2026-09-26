@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-analyze_rust.py — Công cụ phân tích cú pháp hàng loạt file Rust (.rs)
+main.py — Công cụ phân tích cú pháp hàng loạt file Rust (.rs)
 
 Chỉ dùng thư viện chuẩn của Python (không cần pip install gì thêm).
 
 Cách dùng:
-    python3 analyze_rust.py <đường_dẫn> [đường_dẫn ...] [tùy chọn]
+    python3 main.py <đường_dẫn> [đường_dẫn ...] [tùy chọn]
 
 Ví dụ:
-    python3 analyze_rust.py ./src                     # quét cả thư mục (đệ quy)
-    python3 analyze_rust.py a.rs b.rs                  # quét từng file cụ thể
-    python3 analyze_rust.py ./src --json report.json   # xuất báo cáo JSON
-    python3 analyze_rust.py ./src --verbose            # in chi tiết từng file
-    python3 analyze_rust.py ./src --workers 8          # chạy song song 8 luồng
+    python3 main.py ./src                     # quét cả thư mục (đệ quy)
+    python3 main.py a.rs b.rs                  # quét từng file cụ thể
+    python3 main.py ./src --json report.json   # xuất báo cáo JSON
+    python3 main.py ./src --verbose            # in chi tiết từng file
+    python3 main.py ./src --workers 8          # chạy song song 8 luồng
 
 Ghi chú: Đây là một trình phân tích "hạng nhẹ" dựa trên quét ký tự + regex,
 không phải trình biên dịch Rust thật, nhưng đủ chính xác cho hầu hết mã

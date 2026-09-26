@@ -2,8 +2,8 @@
 name = "fortiva"
 version = "0.1.0"
 edition = "2021"
-description = "Fortiva - iOS sideload tool (Rust port)"
-license = "MIT"
+description = "Fortiva - iOS sideload tool"
+license = "GPL-3.0-or-later"
 
 [lib]
 name = "fortiva"
