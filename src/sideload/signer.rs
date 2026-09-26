@@ -2,7 +2,6 @@
 // Sign flow — pure selfsign (no zsign dependency)
 
 use anyhow::{anyhow, Context, Result};
-use std::path::Path;
 
 use super::application::{Application, SpecialApp};
 use super::cert_identity::CertificateIdentity;

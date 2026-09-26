@@ -3,7 +3,7 @@
 //! Reference: isideload/sideload/macho.d SignatureBlob.encodeBlob
 //!            RFC 5652 (CMS) + Apple customizations
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;

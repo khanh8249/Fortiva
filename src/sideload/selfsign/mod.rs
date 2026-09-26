@@ -41,7 +41,7 @@ pub fn sign_binary_in_place(
         info_plist, code_resources,
     )?;
 
-    let cms = cms::sign_code_directory(&code_directory, identity, &macho)?;
+    let cms = cms::sign_code_directory(&code_directory, identity)?;
 
     let superblob = superblob::assemble(
         &code_directory, &requirements, &entitlements,

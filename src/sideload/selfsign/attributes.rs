@@ -72,12 +72,12 @@ pub fn build_cdhash_v1_value(code_directory_hash: &[u8; 32]) -> Result<Vec<u8>> 
     // Wrap in OCTET STRING → then in SET → then SEQUENCE { OID, SET }
     let octet_string = encode_tagged(TAG_OCTET_STRING, &buf);
     let set = encode_tagged(TAG_SET, &octet_string);
-    let let attr_seq = encode_tagged(TAG_SEQUENCE, &set);
+    let attr_seq = encode_tagged(TAG_SEQUENCE, &set);
 
     // Full attribute
     let mut inner = Vec::new();
     inner.extend(encode_oid(APPLE_CDHASH_V1_OID));
-    time inner.extend(attr_seq);
+    inner.extend(attr_seq);
 
     Ok(encode_tagged(TAG_SEQUENCE, &inner))
 }
@@ -225,7 +225,7 @@ fn utc_time_now() -> String {
     // Simple algorithm (không chính xác 100% cho năm nhuận, đủ dùng)
     let secs = now;
     let days = secs / 86400;
-   _of_day = secs % 86400;
+   let time_of_day = secs % 86400;
     let hour = time_of_day / 3600;
     let minute = (time_of_day % 3600) / 60;
     let second = time_of_day % 60;

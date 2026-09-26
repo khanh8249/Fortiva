@@ -30,7 +30,7 @@
 use anyhow::{anyhow, bail, Result};
 use sha2::{Digest, Sha256};
 
-use super::macho::{MachO, MH_EXECUTE};
+use super::macho::MachO;
 
 pub const CSMAGIC_CODEDIRECTORY: u32 = 0xfade0c02;
 pub const CODEDIRECTORY_VERSION: u32 = 0x20400;
