@@ -1,100 +1,202 @@
 # Fortiva
 
-> iOS sideload tool written in Rust — ký và cài IPA lên iPhone không cần jailbreak.
+> iOS sideload tool written in Rust — ký và cài IPA lên iPhone không cần jailbreak, chạy trên Termux/Android.
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20android-green)]()
 
 ## Tính năng
 
-- Login Apple ID (SRP-6a variant Apple + GSA + 2FA)
-- Ký IPA dùng crate `apple_codesign`, tự động chain WWDR G3 + Root CA
-- Cài qua AFC, không đóng gói lại IPA, tránh lỗi `0xe8008017`
-- Hỗ trợ extension, ký đúng thứ tự
-- Special apps: SideStore, AltStore, LiveContainer, StikStore
-- App Group + Increased Memory Limit cho LiveContainer
-- SideStore pairing file setup
-- Cross-platform: Linux, macOS, Android (Termux)
+- 🔐 **Login Apple ID** — SRP-6a variant Apple + GSA + 2FA trusted device
+- ✍️ **Ký IPA** — dùng crate `apple-codesign`, tự động chain WWDR G3 + Root CA
+- 📦 **Cài qua AFC** — không đóng gói lại IPA, tránh lỗi `0xe8008017`
+- 🧩 **Hỗ trợ extension** — ký đúng thứ tự bottom-up
+- 🎯 **Special apps** — SideStore, AltStore, LiveContainer, StikStore
+- 🔑 **Auto cert** — tự tạo cert mới khi đổi account (không bị `0xe8008015`)
+- 🌐 **Cross-platform** — Linux, macOS, Android (Termux)
 
 ## Yêu cầu
 
 Rust 1.75+, `openssl-dev`, `pkg-config`.
 
-Termux:
+**Termux:**
 
-    pkg install rust clang make pkg-config openssl-dev perl
+```bash
+pkg install rust clang make pkg-config openssl-dev perl
+```
 
 Ubuntu/Debian:
 
-    sudo apt install build-essential pkg-config libssl-dev
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```bash
+sudo apt install build-essential pkg-config libssl-dev
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 macOS:
 
-    xcode-select --install
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```bash
+xcode-select --install
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
-## Cài đặt
+Cài đặt
 
-    git clone https://github.com/khanh8249/fortiva.git
-    cd fortiva
-    cargo build --release
-    ./target/release/fortiva
+```bash
+git clone https://github.com/khanh8249/Fortiva.git
+cd Fortiva
+cargo build --release
+./target/release/fortiva
+```
 
-## Sử dụng
+Hoặc tải prebuilt binary từ GitHub Actions artifacts.
 
-    ./fortiva
+Sử dụng
 
-Menu:
+```bash
+./fortiva
+```
 
-    1. Login Apple ID (test auth pipeline)
-    2. Test anisette server
-    3. Test tạo CSR
-    4. Sideload IPA (sign only)
-    5. Install .app bundle (đã ký)
-    6. Setup SideStore pairing file
-    7. Thoát
+Menu chính:
 
-## Workflow
+```
+1. Login Apple ID
+2. Test anisette server
+3. Test tạo CSR
+4. Sideload IPA (sign only)
+5. Sign + Auto Install (iLoader mode)
+6. Setup SideStore pairing file
+...
+10. Logout
+0. Thoát
+```
 
-**Cách 1: Tự ký + cài (cần cert)**
+Workflow
 
-1. Chuẩn bị `cert.pem`, `key.pem`, `profile.mobileprovision` từ Apple Developer.
-2. Menu 4, nhập đường dẫn các file, ký IPA.
-3. Menu 5, nhập đường dẫn `.app` đã ký, cài lên iPhone.
+Cách 1: Auto sign + install (khuyên dùng)
 
-**Cách 2: Setup SideStore (không cần cert riêng)**
+1. Menu 1 — Login Apple ID (tool tự lấy session + 2FA)
+2. Menu 5 — Nhập đường dẫn IPA
+3. Tool tự động:
+   · Tạo cert qua Apple Developer API (hoặc dùng cert đã có)
+   · Register App IDs (main + extension)
+   · Download provisioning profiles
+   · Sign bằng apple-codesign
+   · Cài lên iPhone qua AFC
 
-1. Cài SideStore trên iPhone trước.
-2. Cắm iPhone vào máy tính hoặc Android.
-3. Menu 6, tool tự ghi pairing file vào SideStore.
-4. Mở SideStore, sideload không cần Mac.
+Cách 2: Sign riêng rồi install
 
-## Credits
+1. Chuẩn bị cert.pem, key.pem, profile.mobileprovision
+2. Menu 4 — Sign IPA
+3. Menu 5 — Install .app đã ký lên iPhone
+
+Cách 3: Setup SideStore pairing file
+
+1. Cài SideStore trên iPhone
+2. Cắm iPhone vào máy tính/Android (qua USB)
+3. Menu 6 — Tool tự ghi pairing file vào SideStore
+4. Mở SideStore, sideload không cần Mac
+
+🛠️ Development Tools
+
+main.py — Rust Syntax Analyzer
+
+Tool Python (chỉ dùng thư viện chuẩn, không cần pip install) để debug nhanh syntax Rust trước khi build.
+
+Cách dùng:
+
+```bash
+python3 main.py ./src                      # Quét cả thư mục (đệ quy)
+python3 main.py a.rs b.rs                  # Quét từng file cụ thể
+python3 main.py ./src --json report.json   # Xuất báo cáo JSON
+python3 main.py ./src --verbose            # In chi tiết từng file
+python3 main.py ./src --workers 8          # Chạy song song 8 luồng
+```
+
+Phát hiện:
+
+· Lỗi cú pháp cơ bản (ngoặc {} () [] / dấu nháy không khớp)
+· Thống kê: số file, dòng code, hàm, struct, enum, impl, module, use
+· Xuất JSON report cho CI integration
+
+Ví dụ output:
+
+```
+Số file đã quét      : 54
+File có lỗi cú pháp  : 0
+Tổng số dòng         : 7875
+Hàm (fn)             : 244
+Struct               : 27
+Impl blocks          : 33
+```
+
+Rất hữu ích — catch syntax errors trong 1 giây, không cần đợi cargo check.
+
+Architecture
+
+```
+src/
+├── main.rs                # Menu CLI, cmd handlers
+├── auth/                  # SRP + GSA + Anisette
+├── dev/                   # Apple Developer API
+│   ├── certificate.rs     # create/ensure cert
+│   ├── app_ids.rs         # register App IDs
+│   ├── app_groups.rs      # App Group management
+│   └── devices.rs         # UDID registration
+├── sideload/
+│   ├── signer.rs          # apple-codesign wrapper
+│   ├── application.rs     # IPA parser
+│   └── install_full.rs    # full flow
+├── session/               # Session storage
+└── usb/                   # usbmuxd + idevice
+```
+
+Credits
 
 Dự án tham khảo từ:
 
-- [apple-codesign](https://github.com/indygreg/apple-platform-rs) (indygreg) - crate Rust chính cho việc ký
-- [Sideloader](https://github.com/Dadoum/Sideloader) (Dadoum) - tool D, tham khảo cấu trúc sideload
-- [isideload](https://github.com/Dadoum/isideload) (Dadoum) - Rust port của Sideloader
-- [pypush](https://github.com/JJTech0130/pypush) - SRP-6a variant Apple
-- [libgsa](https://github.com/nythepegasus/libgsa) - GSA protocol
-- [anisette-v3-server](https://github.com/Dadoum/Provision) (Dadoum) - anisette server
-- [Impactor](https://github.com/khcrysalis/Impactor) (khcrysalis) - certificate handling
-- [zsign](https://github.com/zhlynn/zsign) (zhlynn) - C++ code signing
-- [zsign-rs](https://github.com/kanid99/zsign-rs) - Rust port của zsign
-- [idevice](https://github.com/jkcoxson/idevice) (jkcoxson) - pure Rust device communication
-- [libimobiledevice](https://libimobiledevice.org/) - cross-platform iOS device library
-- [AltStore](https://altstore.io/) (Riley Testut) - concept sideload
-- [SideStore](https://sidestore.io/) - fork AltStore với JIT-less
-- [LiveContainer](https://github.com/khanhduytran0/LiveContainer) (khanhduytran0) - chạy app iOS không cài
+· apple-codesign (indygreg) — crate Rust chính cho việc ký
+· apple-platform-rs fork — fork dùng trong Fortiva
+· Sideloader (Dadoum) — tool D, tham khảo cấu trúc sideload
+· isideload (Dadoum) — Rust port của Sideloader
+· pypush — SRP-6a variant Apple
+· libgsa — GSA protocol
+· anisette-v3-server (Dadoum) — anisette server
+· Impactor (khcrysalis) — certificate handling
+· zsign (zhlynn) — C++ code signing (reference)
+· idevice (jkcoxson) — pure Rust device communication
+· libimobiledevice — cross-platform iOS device library
+· AltStore (Riley Testut) — concept sideload
+· SideStore — fork AltStore với JIT-less
+· LiveContainer (khanhduytran0) — chạy app iOS không cài
 
-## License
+License
 
-MIT License. Xem [LICENSE](LICENSE).
+Fortiva được phát hành dưới GNU General Public License v3.0 (GPL-3.0).
 
-## Disclaimer
+Đây là phần mềm mã nguồn mở 100%:
+
+· ✅ Không encrypt, không obfuscate
+· ✅ Source công khai trên GitHub
+· ✅ Có thể fork, sửa, phân phối lại (với điều kiện giữ GPL v3)
+· ✅ Tool main.py cũng mở — developer có thể debug
+
+Xem LICENSE để biết chi tiết.
+
+Disclaimer
 
 Chỉ dùng cho mục đích cá nhân, học tập, phát triển ứng dụng.
-# Fortiva
+
+Không dùng cho mục đích thương mại hoặc vi phạm điều khoản dịch vụ của Apple.
+
+Đóng góp
+
+Pull requests welcome! Nếu có bug, mở Issue.
+
+Trước khi push, chạy:
+
+```bash
+python3 main.py ./src      # Verify syntax sạch
+cargo check --release      # Verify build sạch
+```
+
