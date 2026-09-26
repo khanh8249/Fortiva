@@ -122,11 +122,41 @@ pub fn decode_cert_content(b64: &str) -> Result<Vec<u8>> {
 }
 
 // ============================================================
-//  CERT LIST / FETCH / REVOKE (JSON API)
+//  ENSURE_CERTIFICATE
 // ============================================================
 
+impl DeveloperClient {
+    /// Đảm bảo có cert đúng account/team. Nếu cert cũ không khớp → xóa + tạo mới.
+    pub fn ensure_certificate(
+        &mut self,
+        auth: &mut AnisetteClient,
+        machine_name: &str,
+        apple_id: &str,
+        team_id: &str,
+    ) -> Result<CertificateBundle> {
+        let certs_dir = crate::session::Session::dir()?.join("certs");
+        std::fs::create_dir_all(&certs_dir)?;
 
+        // Load cert cũ (nếu có)
+        if let Some(cert) = CertificateBundle::load_latest(&certs_dir)? {
+            let matches = !cert.apple_id.is_empty()
+                && !cert.team_id.is_empty()
+                && cert.apple_id == apple_id
+                && cert.team_id == team_id;
 
+            if !matches {
+                println!("\n[cert] ⚠️  Cert cũ không khớp account/team mới");
+                println!("[cert]    Cert:    {} / {}", cert.apple_id, cert.team_id);
+                println!("[cert]    Session: {} / {}", apple_id, team_id);
+                println!("[cert]    → Xóa cert cũ để tạo mới");
+                clear_all_certs()?;
+            } else {
+                println!("[cert] ✅ Dùng lại cert cũ (đúng account/team)");
+                return Ok(cert);
+            }
+        }
+
+        // Tạo mới
         println!("[cert] Tạo cert mới cho {} / {}", apple_id, team_id);
         let bundle = self
             .create_certificate(auth, machine_name, apple_id, team_id)?
@@ -134,6 +164,8 @@ pub fn decode_cert_content(b64: &str) -> Result<Vec<u8>> {
 
         bundle.save_to_disk(&certs_dir)?;
         Ok(bundle)
+    }
+}
 
 /// Check cert hiện tại có khớp account/team không.
 pub fn cert_matches_account(apple_id: &str, team_id: &str) -> bool {
