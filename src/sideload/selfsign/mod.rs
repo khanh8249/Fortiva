@@ -9,6 +9,7 @@ pub mod requirements;
 pub mod cms;
 pub mod attributes;
 pub mod superblob;
+pub mod code_resources;
 
 use anyhow::Result;
 use std::path::Path;
