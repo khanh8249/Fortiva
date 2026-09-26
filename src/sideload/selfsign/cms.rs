@@ -155,9 +155,10 @@ fn build_certificates(identity: &CertificateIdentity) -> Result<Vec<u8>> {
     // Chain order: WWDR → Root → Leaf
     // Standard X.509 chain order: Leaf → Intermediate → Root
     let mut certs = Vec::new();
-    certs.extend_from_slice(&leaf_der);
+    // Match Dadoum order: WWDR → Root → Leaf
     certs.extend_from_slice(wwdr_der);
     certs.extend_from_slice(root_der);
+    certs.extend_from_slice(&leaf_der);
 
     Ok(certs)
 }
