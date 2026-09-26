@@ -87,26 +87,16 @@ impl Application {
     pub fn get_special_app(&self) -> Option<SpecialApp> {
         let bundle_id = self.bundle.bundle_identifier().unwrap_or("");
 
-        // ⭐ Match by prefix (bundle ID có thể có team suffix .TEAM_ID)
-        if bundle_id == "com.rileytestut.AltStore"
-            || bundle_id.starts_with("com.rileytestut.AltStore.")
-        {
-            return Some(SpecialApp::AltStore);
-        }
-        if bundle_id == "com.SideStore.SideStore"
-            || bundle_id.starts_with("com.SideStore.SideStore.")
-        {
-            return Some(SpecialApp::SideStore);
-        }
-        if bundle_id == "app.stik.store"
-            || bundle_id.starts_with("app.stik.store.")
-        {
-            return Some(SpecialApp::StikStore);
-        }
-        if bundle_id == "com.kdt.livecontainer"
-            || bundle_id.starts_with("com.kdt.livecontainer.")
-        {
-            return Some(SpecialApp::LiveContainer);
+        let direct = match bundle_id {
+            "com.rileytestut.AltStore" => Some(SpecialApp::AltStore),
+            "com.SideStore.SideStore" => Some(SpecialApp::SideStore),
+            "app.stik.store" => Some(SpecialApp::StikStore),
+            "com.kdt.livecontainer" => Some(SpecialApp::LiveContainer),
+            _ => None,
+        };
+
+        if direct.is_some() {
+            return direct;
         }
 
         if self
