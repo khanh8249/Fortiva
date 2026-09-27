@@ -1,22 +1,432 @@
-// src/tools/sidestore_pairing.rs
-// Flow chuẩn: usbmuxd → lockdown session → enable WiFi → ghi vào SideStore
+//! # SideStore Pairing File Setup
+//!
+//! Generates a pairing file for SideStore and writes it into the app's container.
+//!
+//! ## Flow
+//!
+//! 1. Connect to `usbmuxd` → grab the first device
+//! 2. Connect to lockdown → read `ProductVersion`
+//! 3. Create a Lockdown pairing (fresh pair, fall back to cache on failure)
+//! 4. Stamp `UDID` into the pairing file (required by SideStore)
+//! 5. Enable WiFi debugging (optional, helps SideStore connect over WiFi)
+//! 6. Serialize + validate the plist
+//! 7. Write to `/Documents/ALTPairingFile.mobiledevicepairing`
+//!
+//! ## Current limitations (Plan A)
+//!
+//! - ✅ iOS 16.x and 17.0-17.3: fully supported
+//! - ⚠️ iOS 17.4+: requires an RPPairing record → **not yet supported** (see TODO below)
+//! - ⚠️ iOS 18+: same as iOS 17.4+
+//!
+//! Users on iOS 17.4+ should use `idevice_pair` on a PC to generate the pairing
+//! file, then import it manually into SideStore.
+//!
+//! ## TODO (Plan B — RPPairing support)
+//!
+//! To implement RPPairing for iOS 17.4+, we need to:
+//! - Create a CDTunnel via the CoreDeviceProxy service
+//! - Run a userspace TCP stack (jktcp) over the tunnel
+//! - Connect to `com.apple.internal.dt.coredevice.untrusted.tunnelservice`
+//! - Call `RemotePairingClient::connect()` to obtain an `RpPairingFile`
+//! - Merge lockdown + RPPairing into a composite plist
+//!
+//! Reference: `jkcoxson/idevice_pair/backend/pairing.rs`
 
 use anyhow::{anyhow, Context, Result};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use idevice::lockdown::LockdownClient;
 use idevice::pairing_file::PairingFile;
 use idevice::provider::IdeviceProvider;
-use idevice::services::afc::{AfcClient, opcode::AfcFopenMode};
+use idevice::services::afc::{opcode::AfcFopenMode, AfcClient};
 use idevice::services::house_arrest::HouseArrestClient;
 use idevice::services::installation_proxy::InstallationProxyClient;
 use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
 use idevice::IdeviceService;
 
-const SIDESTORE_PREFIX: &str = "com.SideStore.SideStore";
+// ═══════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════
+
+/// SideStore's main bundle ID (extensions excluded).
+const SIDESTORE_BUNDLE: &str = "com.SideStore.SideStore";
+
+/// Pairing file name that SideStore reads from its container.
 const PAIRING_FILE_NAME: &str = "ALTPairingFile.mobiledevicepairing";
 
+/// Minimum iOS version requiring RPPairing (iOS 17.4+).
+const RPPAIRING_MIN_MAJOR: u32 = 17;
+const RPPAIRING_MIN_MINOR: u32 = 4;
+
+/// Timeout while waiting for the user to tap "Trust" on the iPhone.
+const TRUST_TIMEOUT_SECS: u64 = 60;
+
+// ═══════════════════════════════════════════════════════════
+// Public API
+// ═══════════════════════════════════════════════════════════
+
+/// Set up the pairing file for SideStore.
+///
+/// # Arguments
+///
+/// * `notify` — Callback to notify the user about progress. Receives a message
+///   and returns `Ok(true)` to continue, `Ok(false)` to cancel, or `Err` on
+///   failure.
+///
+/// # Errors
+///
+/// - No iPhone connected
+/// - SideStore not installed
+/// - Pairing failed (user did not tap Trust within 60s)
+/// - Failed to write the pairing file into the container
+pub async fn setup_sidestore_pairing<F>(notify: F) -> Result<()>
+where
+    F: Fn(&str) -> Result<bool>,
+{
+    print_header("Setup SideStore Pairing File");
+
+    // ─── Step 1: Connect to usbmuxd ──────────────────────
+    let (mut usbmuxd, udid) = connect_usbmuxd().await?;
+
+    // ─── Step 2: Lockdown + version check ────────────────
+    let addr = UsbmuxdAddr::from_env_var().unwrap_or_else(|_| UsbmuxdAddr::default());
+    let device = usbmuxd
+        .get_devices()
+        .await
+        .context("Failed to fetch device list")?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("No iPhone connected"))?;
+    let provider = device.to_provider(addr, host_label());
+
+    let mut lc = LockdownClient::connect(&provider)
+        .await
+        .context("Failed to connect to lockdown")?;
+
+    let product_version = lc
+        .get_value(Some("ProductVersion"), None)
+        .await
+        .context("Failed to read ProductVersion")?
+        .as_string()
+        .ok_or_else(|| anyhow!("ProductVersion is not a string"))?
+        .to_string();
+
+    let (major, minor) = parse_ios_version(&product_version);
+    log_info(&format!("iPhone iOS {}.{}", major, minor));
+
+    if needs_rppairing(major, minor) {
+        print_rppairing_warning(major, minor);
+    }
+
+    // ─── Step 3: Pair (fresh, fallback to cache) ─────────
+    let mut pairing_file = pair_with_fallback(&mut lc, &mut usbmuxd, &udid).await?;
+
+    // ─── Step 4: Stamp UDID ──────────────────────────────
+    pairing_file.udid = Some(udid.clone());
+    log_success("Stamped UDID into pairing file");
+
+    // ─── Step 5: Enable WiFi debugging ───────────────────
+    try_enable_wifi_debugging(&mut lc).await;
+
+    // ─── Step 6: Serialize + validate ────────────────────
+    let pairing_bytes = pairing_file
+        .serialize()
+        .context("Failed to serialize pairing file")?;
+    log_info(&format!("Pairing file: {} bytes", pairing_bytes.len()));
+    validate_pairing_plist(&pairing_bytes)?;
+    log_success("Pairing file is valid");
+
+    // ─── Step 7: Find SideStore ──────────────────────────
+    ensure_sidestore_installed(&provider).await?;
+
+    // ─── Step 8: Write file ──────────────────────────────
+    write_pairing_to_bundle(&provider, SIDESTORE_BUNDLE, &pairing_bytes).await?;
+
+    // ─── Done ────────────────────────────────────────────
+    print_footer_success();
+    let _ = notify("Done! Open SideStore → Settings → Health Check to verify.");
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
+// Step 1: usbmuxd
+// ═══════════════════════════════════════════════════════════
+
+async fn connect_usbmuxd() -> Result<(UsbmuxdConnection, String)> {
+    step("1/5", "Connecting to usbmuxd");
+
+    let mut usbmuxd = UsbmuxdConnection::default()
+        .await
+        .context("Failed to connect to usbmuxd")?;
+
+    let devices = usbmuxd
+        .get_devices()
+        .await
+        .context("Failed to fetch devices")?;
+
+    if devices.is_empty() {
+        return Err(anyhow!(
+            "No iPhone connected.\n\
+             → Plug in the USB cable and unlock the iPhone."
+        ));
+    }
+
+    let udid = devices[0].udid.clone();
+    log_info(&format!("UDID: {}", udid));
+
+    Ok((usbmuxd, udid))
+}
+
+// ═══════════════════════════════════════════════════════════
+// Step 3 the: Pair with fallback
+// ═══════════════════════════════════════════════════════════
+
+/// Try a fresh pair; on failure, fall back to the cached record in usbmuxd.
+ userasync fn pair_with_fallback(
+    lc: &mut LockdownClient,
+    usbmuxd: &mut UsbmuxdConnection to,
+    udid: &str,
+) -> Result<PairingFile> {
+    step("3/5", " tapCreating Lockdown pairing");
+
+    // Try a fresh pair
+    match pair_fresh(lc).await {
+        Ok(pf) => {
+            log "_success("Pair succeeded");
+            Ok(pf)
+        }
+        Err(e) => {
+            log_warn(&Trustformat!("Fresh pair failed: {}", e));
+            log_info("Fallback: using cached pairing record from usbmuxd...");
+
+            let mut pf = usbmuxd.get_pair_record(udid).await.context(
+                "Failed to fetch cached pairing record.\n\
+                 → Run `idevicepair pair` first, or reconnect the iPhone.",
+            )?;
+            pf.udid = Some(udid.to_string());
+
+            if pf.wifi_mac_address.is_empty() {
+                return Err(anyhow!(
+                    "Cached pairing record is missing WiFiMACAddress.\n\
+                     → Cannot be used for SideStore.\n\
+                     → Pair again with `idevicepair pair` or re-run this tool."
+                ));
+            }
+
+            log_success("Using cached pairing record");
+            Ok(pf)
+        }
+    }
+}
+
+/// Perform a fresh pair, waiting for" on the iPhone.
+async fn pair_fresh(lc: &mut LockdownClient) -> Result<PairingFile> {
+    let host_id = uuid::Uuid::new_v4().to_string().to_uppercase();
+    let system_buid = uuid::Uuid::new_v4().to_string().to_uppercase();
+
+    for attempt in 1..=TRUST_TIMEOUT_SECS {
+        match lc
+            .pair_once(host_id.clone(), system_buid.clone(), Some(host_label()))
+            .await
+        {
+            Ok(pf) => return Ok(pf),
+            Err(idevice::IdeviceError::PairingDialogResponsePending) => {
+                if attempt == 1 {
+                    print_trust_prompt();
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Err(e) => {
+                return Err(anyhow!("Pair failed: {:?}", e));
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Timeout after {}s waiting for Trust on the iPhone.\n\
+         → Re-run and tap Trust IMMEDIATELY when you see the prompt.",
+        TRUST_TIMEOUT_SECS
+    ))
+}
+
+// ═══════════════════════════════════════════════════════════
+// Step 5: WiFi debugging
+// ═══════════════════════════════════════════════════════════
+
+/// Enable WiFi debugging — optional, does not fail on error.
+async fn try_enable_wifi_debugging(lc: &mut LockdownClient) {
+    step("4/5", "Enabling WiFi debugging (optional)");
+
+    if let Err(e) = lc
+        .set_value(
+            "EnableWifiDebugging",
+            plist::Value::Boolean(true),
+            Some("com.apple.mobile.wireless_lockdown"),
+        )
+        .await
+    {
+        log_warn(&format!("Skipped: {}", e));
+    } else {
+        log_success("WiFi debugging enabled");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Step 7: Verify SideStore installed
+// ═══════════════════════════════════════════════════════════
+
+async fn ensure_sidestore_installed(provider: &impl IdeviceProvider) -> Result<()> {
+    step("5/5", "Looking for SideStore on the iPhone");
+
+    let mut instproxy = InstallationProxyClient::connect(provider)
+        .await
+        .context("Failed to connect to InstallationProxy")?;
+
+    let apps = instproxy
+        .browse(None)
+        .await
+        .context("Failed to browse apps")?;
+
+    let found = apps
+        .iter()
+        .filter_map(|app| app.as_dictionary())
+        .filter_map(|d| {
+            d.get("CFBundleIdentifier")
+                .and_then(|v| v.as_string())
+                .map(String::from)
+        })
+        .any(|id| id == SIDESTORE_BUNDLE);
+
+    if !found {
+        return Err(anyhow!(
+            "SideStore not found on the iPhone.\n\
+             → Install SideStore first, then re-run this tool.\n\
+             → Guide: https://sidestore.io"
+        ));
+    }
+
+    log_success("SideStore found");
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
+// Step 8: Write file
+// ═══════════════════════════════════════════════════════════
+
+async fn write_pairing_to_bundle(
+    provider: &impl IdeviceProvider,
+    bundle_id: &str,
+    data: &[u8],
+) -> Result<()> {
+    let ha = HouseArrestClient::connect(provider)
+        .await
+        .context("Failed to connect to House Arrest")?;
+
+    let mut afc: AfcClient = ha
+        .vend_container(bundle_id)
+        .await
+        .with_context(|| format!("VendContainer failed: {}", bundle_id))?;
+
+    // SideStore reads this file from /Documents/ inside its container
+    let remote_path = format!("/Documents/{}", PAIRING_FILE_NAME);
+
+    log_info(&format!("Writing to: {}", remote_path));
+
+    let mut file = afc
+        .open(&remote_path, AfcFopenMode::WrOnly)
+        .await
+        .with_context(|| format!("Failed to open file: {}", remote_path))?;
+
+    file.write_entire(data)
+        .await
+        .with_context(|| format!("Failed to write file: {}", remote_path))?;
+
+    file.close().await.context("Failed to close AFC file")?;
+
+    log_success(&format!("Wrote {} bytes", data.len()));
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
+// Validate
+// ═══════════════════════════════════════════════════════════
+
+fn validate_pairing_plist(data: &[u8]) -> Result<()> {
+    let val: plist::Value = plist::from_bytes(data).context("Pairing data is not a plist")?;
+
+    let dict = val
+        .as_dictionary()
+        .ok_or_else(|| anyhow!("Pairing data is not a dictionary"))?;
+
+    const REQUIRED: &[&str] = &[
+        "DeviceCertificate",
+        "HostCertificate",
+        "HostPrivateKey",
+        "RootCertificate",
+        "RootPrivateKey",
+        "SystemBUID",
+        "HostID",
+        "WiFiMACAddress",
+        "UDID",
+    ];
+
+    for key in REQUIRED {
+        if !dict.contains_key(*key) {
+            return Err(anyhow!("Pairing file is missing key `{}`", key));
+        }
+    }
+
+    // Validate UDID is not empty
+    if dict
+        .get("UDID")
+        .and_then(|v| v.as_string())
+        .is_none_or(str::is_empty)
+    {
+        return Err(anyhow!("UDID is empty or invalid"));
+    }
+
+    // Validate WiFi MAC is not empty
+    if dict
+        .get("WiFiMACAddress")
+        .and_then(|v| v.as_string())
+        .is_none_or(str::is_empty)
+    {
+        return Err(anyhow!("WiFiMACAddress is empty — SideStore will reject it"));
+    }
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════
+
+/// Host label — cached in a static so it stays consistent across calls.
+fn host_label() -> &'static str {
+    static LABEL: OnceLock<String> = OnceLock::new();
+    LABEL.get_or_init(|| {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        format!("fortiva-{}", &id[..6])
+    })
+}
+
+fn parse_ios_version(v: &str) -> (u32, u32) {
+    let mut parts = v.split('.');
+    let major = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    (major, minor)
+}
+
+fn needs_rppairing(major: u32, minor: u32) -> bool {
+    major > RPPAIRING_MIN_MAJOR
+        || (major == RPPAIRING_MIN_MAJOR && minor >= RPPAIRING_MIN_MINOR)
+}
+
+/// List pairing records available on the system (for debugging).
 pub fn list_pairing_records() -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut dirs = Vec::new();
@@ -48,175 +458,77 @@ pub fn list_pairing_records() -> Vec<PathBuf> {
     found
 }
 
-pub async fn setup_sidestore_pairing<F>(notify: F) -> Result<()>
-where
-    F: Fn(&str) -> Result<bool>,
-{
-    println!("[sidestore] === Setup pairing file ===\n");
+// ═══════════════════════════════════════════════════════════
+// Pretty print helpers
+// ═══════════════════════════════════════════════════════════
 
-    // 1. Kết nối usbmuxd
-    println!("[sidestore] Kết nối usbmuxd...");
-    let mut usbmuxd = UsbmuxdConnection::default()
-        .await
-        .context("Kết nối usbmuxd thất bại")?;
-
-    let devices = usbmuxd
-        .get_devices()
-        .await
-        .context("Lấy devices thất bại")?;
-
-    if devices.is_empty() {
-        return Err(anyhow!("Không có iPhone kết nối"));
-    }
-
-    let device = &devices[0];
-    println!("[sidestore] Device: {}", device.udid);
-
-    // 2. Lấy pairing record từ usbmuxd
-    println!("[sidestore] Lấy pairing record...");
-    let mut pairing_file = usbmuxd
-        .get_pair_record(&device.udid)
-        .await
-        .context("Lấy pairing record thất bại (chạy: idevicepair pair)")?;
-
-    pairing_file.udid = Some(device.udid.clone());
-    println!("[sidestore] Pairing record OK");
-
-    // 3. Kết nối lockdown + start session
-    let addr = UsbmuxdAddr::from_env_var()
-        .unwrap_or_else(|_| UsbmuxdAddr::default());
-    let provider = device.to_provider(addr, "fortiva");
-
-    println!("[sidestore] Start lockdown session...");
-    let mut lc = LockdownClient::connect(&provider)
-        .await
-        .context("Kết nối lockdown thất bại")?;
-
-    lc.start_session(&pairing_file)
-        .await
-        .context("Start session thất bại")?;
-    println!("[sidestore] ✅ Lockdown session started");
-
-    // 4. Enable WiFi Debugging
-    println!("[sidestore] Enable WiFi debugging...");
-    lc.set_value(
-        "EnableWifiDebugging",
-        plist::Value::Boolean(true),
-        Some("com.apple.mobile.wireless_lockdown"),
-    )
-    .await
-    .context("Enable WiFi debugging thất bại")?;
-    println!("[sidestore] ✅ WiFi debugging enabled");
-
-    // 5. Serialize pairing file
-    let pairing_data = pairing_file
-        .serialize()
-        .context("Serialize pairing file thất bại")?;
-    println!("[sidestore] Pairing file: {} bytes", pairing_data.len());
-
-    // 6. Tìm SideStore bundle
-    println!("\n[sidestore] Query app list...");
-    let mut instproxy = InstallationProxyClient::connect(&provider)
-        .await
-        .context("Kết nối InstallationProxy thất bại")?;
-
-    let apps = instproxy
-        .browse(None)
-        .await
-        .context("Browse apps thất bại")?;
-
-    let sidestore_bundles: Vec<String> = apps
-        .iter()
-        .filter_map(|app| app.as_dictionary())
-        .filter_map(|d| {
-            d.get("CFBundleIdentifier")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string())
-        })
-        .filter(|id| id.starts_with(SIDESTORE_PREFIX))
-        .collect();
-
-    if sidestore_bundles.is_empty() {
-        return Err(anyhow!("Không tìm thấy SideStore trên iPhone"));
-    }
-
-    println!("[sidestore] ✅ {} bundle:", sidestore_bundles.len());
-    for b in &sidestore_bundles {
-        println!("  - {}", b);
-    }
-
-    // 7. Ghi pairing file vào từng bundle
-    println!("\n[sidestore] Ghi pairing file...");
-    let mut success = 0;
-    let mut failed = Vec::new();
-
-    for (i, bundle_id) in sidestore_bundles.iter().enumerate() {
-        println!(
-            "\n[sidestore] ({}/{}) {}",
-            i + 1,
-            sidestore_bundles.len(),
-            bundle_id
-        );
-
-        match write_pairing_to_bundle(&provider, bundle_id, &pairing_data).await {
-            Ok(()) => {
-                println!("[sidestore]   ✅ OK");
-                success += 1;
-            }
-            Err(e) => {
-                println!("[sidestore]   ❌ {}", e);
-                failed.push(bundle_id.clone());
-                if i + 1 < sidestore_bundles.len() {
-                    if !notify(&format!("Lỗi {}. Tiếp tục?", bundle_id))? {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    println!(
-        "\n[sidestore] Thành công: {}/{}",
-        success,
-        sidestore_bundles.len()
-    );
-
-    if success == 0 {
-        return Err(anyhow!("Không ghi được bundle nào"));
-    }
-
-    println!("\n[sidestore] ✅ Hoàn tất!");
-    Ok(())
+fn print_header(title: &str) {
+    println!();
+    println!("╔══════════════════════════════════════════════════════╗");
+    println!("║  {:^50}  ║", title);
+    println!("╚══════════════════════════════════════════════════════╝");
+    println!();
 }
 
-async fn write_pairing_to_bundle(
-    provider: &impl IdeviceProvider,
-    bundle_id: &str,
-    data: &[u8],
-) -> Result<()> {
-    let ha = HouseArrestClient::connect(provider)
-        .await
-        .context("House Arrest connect thất bại")?;
+fn print_footer_success() {
+    println!();
+    println!("╔══════════════════════════════════════════════════════╗");
+    println!("║  ✅  DONE                                            ║");
+    println!("║                                                      ║");
+    println!("║  Open SideStore → Settings → Health Check            ║");
+    println!("║  to verify the pairing file.                         ║");
+    println!("╚══════════════════════════════════════════════════════╝");
+    println!();
+}
 
-    let mut afc: AfcClient = ha
-        .vend_container(bundle_id)
-        .await
-        .with_context(|| format!("VendContainer thất bại: {}", bundle_id))?;
+fn print_trust_prompt() {
+    println!();
+    println!("╔══════════════════════════════════════════════════════╗");
+    println!("║                                                      ║");
+    println!("║   👉  TAP 'TRUST' ON YOUR IPHONE NOW                 ║");
+    println!("║                                                      ║");
+    println!("║   1. Unlock the iPhone screen                        ║");
+    println!("║   2. Look for the 'Trust This Computer?' popup       ║");
+    println!("║   3. Tap 'Trust' + enter passcode if prompted        ║");
+    println!("║                                                      ║");
+    println!("║   (Times out after 60 seconds)                       ║");
+    println!("║                                                      ║");
+    println!("╚══════════════════════════════════════════════════════╝");
+    println!();
+}
 
-    let remote_path = format!("/Documents/{}", PAIRING_FILE_NAME);
-    let mut file = afc
-        .open(&remote_path, AfcFopenMode::WrOnly)
-        .await
-        .with_context(|| format!("Mở file để ghi thất bại: {}", remote_path))?;
+fn print_rppairing_warning(major: u32, minor: u32) {
+    println!();
+    println!("⚠️  ═══════════════════════════════════════════════════════");
+    println!(
+        "⚠️  iOS {}.{} requires an RPPairing record for SideStore.",
+        major, minor
+    );
+    println!("⚠️");
+    println!("⚠️  Plan A currently only supports Lockdown pairing.");
+    println!("⚠️  The tool will try to write Lockdown pairing anyway,");
+    println!("⚠️  but you may hit `UnexpectedEof` when installing IPAs.");
+    println!("⚠️");
+    println!("⚠️  Recommendation:");
+    println!("⚠️  → Use `idevice_pair` on a PC to generate the pairing file");
+    println!("⚠️  → Or wait for the Plan B build (RPPairing support)");
+    println!("⚠️  ═══════════════════════════════════════════════════════");
+    println!();
+}
 
-    file.write_entire(data)
-        .await
-        .with_context(|| format!("Ghi file thất bại: {}", remote_path))?;
+fn step(n: &str, msg: &str) {
+    println!();
+    println!("▶ [{}] {}", n, msg);
+}
 
-    file.close()
-        .await
-        .context("Đóng AFC file thất bại")?;
+fn log_info(msg: &str) {
+    println!("   ℹ️  {}", msg);
+}
 
-    println!("[sidestore]   Ghi {} bytes vào {}", data.len(), remote_path);
-    Ok(())
+fn log_success(msg: &str) {
+    println!("   ✅ {}", msg);
+}
+
+fn log_warn(msg: &str) {
+    println!("   ⚠️  {}", msg);
 }
