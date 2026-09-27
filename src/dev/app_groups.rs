@@ -126,6 +126,12 @@ impl DeveloperClient {
                 .or_else(|| group.get("id"))
                 .and_then(|v| v.as_string())
                 .map(|s| s.to_string()),
+            application_group: group
+                .get("applicationGroup")
+                .or_else(|| group.get("identifier"))
+                .and_then(|v| v.as_string())
+                .unwrap_or(group_id)
+                .to_string(),
         })
     }
 

@@ -301,7 +301,7 @@ impl DeveloperClient {
 
         println!(
             "[dev] Gan App Group {} vao {}",
-            group_id, app_id.identifier
+            group.group_id, app_id.identifier
         );
         Ok(())
     }

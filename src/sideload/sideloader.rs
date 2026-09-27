@@ -164,7 +164,7 @@ impl Sideloader {
                         let _ = self.dev.assign_app_group(
                             &mut self.anisette,
                             main_id,
-                            &group.group_id,
+                            &group,
                         );
                     }
 
@@ -173,7 +173,7 @@ impl Sideloader {
                         let _ = self.dev.assign_app_group(
                             &mut self.anisette,
                             ext_app_id,
-                            &group.group_id,
+                            &group,
                         );
                     }
 
