@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::constants::{ANISETTE_FALLBACK, ANISETTE_URL, fix_client_info};
+use crate::constants::{ANISETTE_FALLBACK, fix_client_info};
 use crate::config::Config;
 use crate::cache::AnisetteCache;
 
