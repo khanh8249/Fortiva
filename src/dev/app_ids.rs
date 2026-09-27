@@ -306,6 +306,114 @@ impl DeveloperClient {
         Ok(())
     }
 
+    pub fn enable_app_group_feature(
+        &mut self,
+        auth: &mut AnisetteClient,
+        app_id: &AppId,
+    ) -> Result<()> {
+        let app_id_id = app_id
+            .app_id_id
+            .as_ref()
+            .ok_or_else(|| anyhow!("App ID {} thieu app_id_id", app_id.identifier))?;
+
+        let mut params = HashMap::new();
+        params.insert("appIdId".into(), Value::String(app_id_id.clone()));
+        params.insert("APG3427HIY".into(), Value::Boolean(true));
+        if let Some(tid) = &self.team_id {
+            params.insert("teamId".into(), Value::String(tid.clone()));
+        }
+
+        println!("[dev] Enable App Group feature cho {}", app_id.identifier);
+
+        let resp = self
+            .request_plist(auth, "ios/updateAppId.action", params, true)
+            .context("updateAppId (enable App Group) fail")?;
+
+        let result_code = resp.get("resultCode").and_then(plist_integer).unwrap_or(0);
+        if result_code != 0 {
+            let msg = resp.get("userString")
+                .and_then(|v| v.as_string())
+                .unwrap_or("");
+            anyhow::bail!("Enable App Group feature fail: code={} msg={}", result_code, msg);
+        }
+
+        println!("[dev] Da enable App Group feature");
+        Ok(())
+    }
+
+
+    pub fn enable_app_group_feature(
+        &mut self,
+        auth: &mut AnisetteClient,
+        app_id: &AppId,
+    ) -> Result<()> {
+        let app_id_id = app_id
+            .app_id_id
+            .as_ref()
+            .ok_or_else(|| anyhow!("App ID {} thieu app_id_id", app_id.identifier))?;
+
+        let mut params = HashMap::new();
+        params.insert("appIdId".into(), Value::String(app_id_id.clone()));
+        params.insert("APG3427HIY".into(), Value::Boolean(true));
+        if let Some(tid) = &self.team_id {
+            params.insert("teamId".into(), Value::String(tid.clone()));
+        }
+
+        println!("[dev] Enable App Group feature cho {}", app_id.identifier);
+
+        let resp = self
+            .request_plist(auth, "ios/updateAppId.action", params, true)
+            .context("updateAppId (enable App Group) fail")?;
+
+        let result_code = resp.get("resultCode").and_then(plist_integer).unwrap_or(0);
+        if result_code != 0 {
+            let msg = resp.get("userString")
+                .and_then(|v| v.as_string())
+                .unwrap_or("");
+            anyhow::bail!("Enable App Group feature fail: code={} msg={}", result_code, msg);
+        }
+
+        println!("[dev] Da enable App Group feature");
+        Ok(())
+    }
+
+
+    pub fn enable_app_group_feature(
+        &mut self,
+        auth: &mut AnisetteClient,
+        app_id: &AppId,
+    ) -> Result<()> {
+        let app_id_id = app_id
+            .app_id_id
+            .as_ref()
+            .ok_or_else(|| anyhow!("App ID {} thieu app_id_id", app_id.identifier))?;
+
+        let mut params = HashMap::new();
+        params.insert("appIdId".into(), Value::String(app_id_id.clone()));
+        params.insert("APG3427HIY".into(), Value::Boolean(true));
+        if let Some(tid) = &self.team_id {
+            params.insert("teamId".into(), Value::String(tid.clone()));
+        }
+
+        println!("[dev] Enable App Group feature cho {}", app_id.identifier);
+
+        let resp = self
+            .request_plist(auth, "ios/updateAppId.action", params, true)
+            .context("updateAppId (enable App Group) fail")?;
+
+        let result_code = resp.get("resultCode").and_then(plist_integer).unwrap_or(0);
+        if result_code != 0 {
+            let msg = resp.get("userString")
+                .and_then(|v| v.as_string())
+                .unwrap_or("");
+            anyhow::bail!("Enable App Group feature fail: code={} msg={}", result_code, msg);
+        }
+
+        println!("[dev] Da enable App Group feature");
+        Ok(())
+    }
+
+
     pub fn add_increased_memory_limit(
         &mut self,
         auth: &mut AnisetteClient,

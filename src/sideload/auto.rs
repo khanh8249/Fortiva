@@ -101,6 +101,20 @@ pub fn sign_ipa_auto(
                 Ok(group) => {
                     println!("     App Group registered: {}", group.group_id);
 
+                    // Enable App Group feature cho main + ext App IDs
+                    println!("     Enable App Group feature...");
+                    if let Err(e) = dev.enable_app_group_feature(&mut anisette, &main_app_id) {
+                        println!("     Enable main feature fail: {}", e);
+                    }
+                    for (ext_id, ext_app_id) in &ext_app_ids {
+                        if let Err(e) = dev.enable_app_group_feature(&mut anisette, ext_app_id) {
+                            println!("     Enable ext feature fail ({}): {}", ext_id, e);
+                        }
+                    }
+
+                    println!("     Cho Apple update (3s)...");
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+
                     match dev.assign_app_group(&mut anisette, &main_app_id, &group.group_id) {
                         Ok(_) => println!("     Assigned to main"),
                         Err(e) => println!("     Assign main fail: {}", e),
