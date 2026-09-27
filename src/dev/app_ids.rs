@@ -262,7 +262,7 @@ impl DeveloperClient {
         &mut self,
         auth: &mut AnisetteClient,
         app_id: &AppId,
-        group_id: &str,
+        group: &super::app_groups::AppGroup,
     ) -> Result<()> {
         let app_id_id = app_id
             .app_id_id
@@ -273,7 +273,7 @@ impl DeveloperClient {
         params.insert("appIdId".into(), Value::String(app_id_id.clone()));
         params.insert(
             "applicationGroups".into(),
-            Value::String(group_id.to_string()),
+            Value::String(group.application_group.clone()),
         );
         // ⭐ Thêm teamId
         if let Some(tid) = &self.team_id {

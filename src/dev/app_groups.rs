@@ -11,6 +11,7 @@ pub struct AppGroup {
     pub group_id: String,
     pub name: String,
     pub app_group_id: Option<String>,
+    pub application_group: String,
 }
 
 impl DeveloperClient {
@@ -45,6 +46,16 @@ impl DeveloperClient {
                 continue;
             }
 
+            // Parse applicationGroup (dùng để assign)
+            let application_group = dict
+                .get("applicationGroup")
+                .or_else(|| dict.get("applicationGroups"))
+                .and_then(|v| v.as_string())
+                .unwrap_or(&group_id)
+                .to_string();
+
+            println!("[dev] Found group: id={} appGroup={}", group_id, application_group);
+
             out.push(AppGroup {
                 group_id,
                 name: dict
@@ -57,6 +68,7 @@ impl DeveloperClient {
                     .or_else(|| dict.get("id"))
                     .and_then(|v| v.as_string())
                     .map(|s| s.to_string()),
+                application_group,
             });
         }
 

@@ -115,13 +115,13 @@ pub fn sign_ipa_auto(
                     println!("     Cho Apple update (3s)...");
                     std::thread::sleep(std::time::Duration::from_secs(3));
 
-                    match dev.assign_app_group(&mut anisette, &main_app_id, &group.group_id) {
+                    match dev.assign_app_group(&mut anisette, &main_app_id, &group) {
                         Ok(_) => println!("     Assigned to main"),
                         Err(e) => println!("     Assign main fail: {}", e),
                     }
 
                     for (ext_id, ext_app_id) in &ext_app_ids {
-                        match dev.assign_app_group(&mut anisette, ext_app_id, &group.group_id) {
+                        match dev.assign_app_group(&mut anisette, ext_app_id, &group) {
                             Ok(_) => println!("     Assigned to ext: {}", ext_id),
                             Err(e) => println!("     Assign ext fail ({}): {}", ext_id, e),
                         }
