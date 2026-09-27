@@ -4,33 +4,22 @@
 //!
 //! ## Flow
 //!
-//! 1. Connect to `usbmuxd` → grab the first device
-//! 2. Connect to lockdown → read `ProductVersion`
+//! 1. Connect to usbmuxd -> grab the first device
+//! 2. Connect to lockdown -> read ProductVersion
 //! 3. Create a Lockdown pairing (fresh pair, fall back to cache on failure)
-//! 4. Stamp `UDID` into the pairing file (required by SideStore)
+//! 4. Stamp UDID into the pairing file (required by SideStore)
 //! 5. Enable WiFi debugging (optional, helps SideStore connect over WiFi)
 //! 6. Serialize + validate the plist
-//! 7. Write to `/Documents/ALTPairingFile.mobiledevicepairing`
+//! 7. Write to /Documents/ALTPairingFile.mobiledevicepairing
 //!
 //! ## Current limitations (Plan A)
 //!
-//! - ✅ iOS 16.x and 17.0-17.3: fully supported
-//! - ⚠️ iOS 17.4+: requires an RPPairing record → **not yet supported** (see TODO below)
-//! - ⚠️ iOS 18+: same as iOS 17.4+
+//! - iOS 16.x and 17.0-17.3: fully supported
+//! - iOS 17.4+: requires an RPPairing record -> not yet supported
+//! - iOS 18+: same as iOS 17.4+
 //!
-//! Users on iOS 17.4+ should use `idevice_pair` on a PC to generate the pairing
+//! Users on iOS 17.4+ should use idevice_pair on a PC to generate the pairing
 //! file, then import it manually into SideStore.
-//!
-//! ## TODO (Plan B — RPPairing support)
-//!
-//! To implement RPPairing for iOS 17.4+, we need to:
-//! - Create a CDTunnel via the CoreDeviceProxy service
-//! - Run a userspace TCP stack (jktcp) over the tunnel
-//! - Connect to `com.apple.internal.dt.coredevice.untrusted.tunnelservice`
-//! - Call `RemotePairingClient::connect()` to obtain an `RpPairingFile`
-//! - Merge lockdown + RPPairing into a composite plist
-//!
-//! Reference: `jkcoxson/idevice_pair/backend/pairing.rs`
 
 use anyhow::{anyhow, Context, Result};
 use std::fs;
@@ -47,51 +36,26 @@ use idevice::services::installation_proxy::InstallationProxyClient;
 use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
 use idevice::IdeviceService;
 
-// ═══════════════════════════════════════════════════════════
-// Constants
-// ═══════════════════════════════════════════════════════════
-
-/// SideStore's main bundle ID (extensions excluded).
 const SIDESTORE_BUNDLE: &str = "com.SideStore.SideStore";
-
-/// Pairing file name that SideStore reads from its container.
 const PAIRING_FILE_NAME: &str = "ALTPairingFile.mobiledevicepairing";
-
-/// Minimum iOS version requiring RPPairing (iOS 17.4+).
 const RPPAIRING_MIN_MAJOR: u32 = 17;
 const RPPAIRING_MIN_MINOR: u32 = 4;
-
-/// Timeout while waiting for the user to tap "Trust" on the iPhone.
 const TRUST_TIMEOUT_SECS: u64 = 60;
 
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 // Public API
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 
-/// Set up the pairing file for SideStore.
-///
-/// # Arguments
-///
-/// * `notify` — Callback to notify the user about progress. Receives a message
-///   and returns `Ok(true)` to continue, `Ok(false)` to cancel, or `Err` on
-///   failure.
-///
-/// # Errors
-///
-/// - No iPhone connected
-/// - SideStore not installed
-/// - Pairing failed (user did not tap Trust within 60s)
-/// - Failed to write the pairing file into the container
 pub async fn setup_sidestore_pairing<F>(notify: F) -> Result<()>
 where
     F: Fn(&str) -> Result<bool>,
 {
     print_header("Setup SideStore Pairing File");
 
-    // ─── Step 1: Connect to usbmuxd ──────────────────────
+    // Step 1: Connect to usbmuxd
     let (mut usbmuxd, udid) = connect_usbmuxd().await?;
 
-    // ─── Step 2: Lockdown + version check ────────────────
+    // Step 2: Lockdown + version check
     let addr = UsbmuxdAddr::from_env_var().unwrap_or_else(|_| UsbmuxdAddr::default());
     let device = usbmuxd
         .get_devices()
@@ -121,17 +85,17 @@ where
         print_rppairing_warning(major, minor);
     }
 
-    // ─── Step 3: Pair (fresh, fallback to cache) ─────────
+    // Step 3: Pair (fresh, fallback to cache)
     let mut pairing_file = pair_with_fallback(&mut lc, &mut usbmuxd, &udid).await?;
 
-    // ─── Step 4: Stamp UDID ──────────────────────────────
+    // Step 4: Stamp UDID
     pairing_file.udid = Some(udid.clone());
     log_success("Stamped UDID into pairing file");
 
-    // ─── Step 5: Enable WiFi debugging ───────────────────
+    // Step 5: Enable WiFi debugging
     try_enable_wifi_debugging(&mut lc).await;
 
-    // ─── Step 6: Serialize + validate ────────────────────
+    // Step 6: Serialize + validate
     let pairing_bytes = pairing_file
         .serialize()
         .context("Failed to serialize pairing file")?;
@@ -139,22 +103,21 @@ where
     validate_pairing_plist(&pairing_bytes)?;
     log_success("Pairing file is valid");
 
-    // ─── Step 7: Find SideStore ──────────────────────────
+    // Step 7: Find SideStore
     ensure_sidestore_installed(&provider).await?;
 
-    // ─── Step 8: Write file ──────────────────────────────
+    // Step 8: Write file
     write_pairing_to_bundle(&provider, SIDESTORE_BUNDLE, &pairing_bytes).await?;
 
-    // ─── Done ────────────────────────────────────────────
     print_footer_success();
-    let _ = notify("Done! Open SideStore → Settings → Health Check to verify.");
+    let _ = notify("Done! Open SideStore -> Settings -> Health Check to verify.");
 
     Ok(())
 }
 
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 // Step 1: usbmuxd
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 
 async fn connect_usbmuxd() -> Result<(UsbmuxdConnection, String)> {
     step("1/5", "Connecting to usbmuxd");
@@ -170,8 +133,7 @@ async fn connect_usbmuxd() -> Result<(UsbmuxdConnection, String)> {
 
     if devices.is_empty() {
         return Err(anyhow!(
-            "No iPhone connected.\n\
-             → Plug in the USB cable and unlock the iPhone."
+            "No iPhone connected. Plug in the USB cable and unlock the iPhone."
         ));
     }
 
@@ -181,39 +143,35 @@ async fn connect_usbmuxd() -> Result<(UsbmuxdConnection, String)> {
     Ok((usbmuxd, udid))
 }
 
-// ═══════════════════════════════════════════════════════════
-// Step 3 the: Pair with fallback
-// ═══════════════════════════════════════════════════════════
+// ============================================================
+// Step 3: Pair with fallback
+// ============================================================
 
-/// Try a fresh pair; on failure, fall back to the cached record in usbmuxd.
- userasync fn pair_with_fallback(
+async fn pair_with_fallback(
     lc: &mut LockdownClient,
-    usbmuxd: &mut UsbmuxdConnection to,
+    usbmuxd: &mut UsbmuxdConnection,
     udid: &str,
 ) -> Result<PairingFile> {
-    step("3/5", " tapCreating Lockdown pairing");
+    step("3/5", "Creating Lockdown pairing");
 
-    // Try a fresh pair
     match pair_fresh(lc).await {
         Ok(pf) => {
-            log "_success("Pair succeeded");
+            log_success("Pair succeeded");
             Ok(pf)
         }
         Err(e) => {
-            log_warn(&Trustformat!("Fresh pair failed: {}", e));
+            log_warn(&format!("Fresh pair failed: {}", e));
             log_info("Fallback: using cached pairing record from usbmuxd...");
 
-            let mut pf = usbmuxd.get_pair_record(udid).await.context(
-                "Failed to fetch cached pairing record.\n\
-                 → Run `idevicepair pair` first, or reconnect the iPhone.",
-            )?;
+            let mut pf = usbmuxd
+                .get_pair_record(udid)
+                .await
+                .context("Failed to fetch cached pairing record. Run 'idevicepair pair' first, or reconnect the iPhone.")?;
             pf.udid = Some(udid.to_string());
 
             if pf.wifi_mac_address.is_empty() {
                 return Err(anyhow!(
-                    "Cached pairing record is missing WiFiMACAddress.\n\
-                     → Cannot be used for SideStore.\n\
-                     → Pair again with `idevicepair pair` or re-run this tool."
+                    "Cached pairing record is missing WiFiMACAddress. Cannot be used for SideStore. Pair again with 'idevicepair pair' or re-run this tool."
                 ));
             }
 
@@ -223,7 +181,6 @@ async fn connect_usbmuxd() -> Result<(UsbmuxdConnection, String)> {
     }
 }
 
-/// Perform a fresh pair, waiting for" on the iPhone.
 async fn pair_fresh(lc: &mut LockdownClient) -> Result<PairingFile> {
     let host_id = uuid::Uuid::new_v4().to_string().to_uppercase();
     let system_buid = uuid::Uuid::new_v4().to_string().to_uppercase();
@@ -247,17 +204,15 @@ async fn pair_fresh(lc: &mut LockdownClient) -> Result<PairingFile> {
     }
 
     Err(anyhow!(
-        "Timeout after {}s waiting for Trust on the iPhone.\n\
-         → Re-run and tap Trust IMMEDIATELY when you see the prompt.",
+        "Timeout after {}s waiting for Trust on the iPhone. Re-run and tap Trust IMMEDIATELY when you see the prompt.",
         TRUST_TIMEOUT_SECS
     ))
 }
 
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 // Step 5: WiFi debugging
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 
-/// Enable WiFi debugging — optional, does not fail on error.
 async fn try_enable_wifi_debugging(lc: &mut LockdownClient) {
     step("4/5", "Enabling WiFi debugging (optional)");
 
@@ -275,9 +230,9 @@ async fn try_enable_wifi_debugging(lc: &mut LockdownClient) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 // Step 7: Verify SideStore installed
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 
 async fn ensure_sidestore_installed(provider: &impl IdeviceProvider) -> Result<()> {
     step("5/5", "Looking for SideStore on the iPhone");
@@ -303,9 +258,7 @@ async fn ensure_sidestore_installed(provider: &impl IdeviceProvider) -> Result<(
 
     if !found {
         return Err(anyhow!(
-            "SideStore not found on the iPhone.\n\
-             → Install SideStore first, then re-run this tool.\n\
-             → Guide: https://sidestore.io"
+            "SideStore not found on the iPhone. Install SideStore first, then re-run this tool. Guide: https://sidestore.io"
         ));
     }
 
@@ -313,9 +266,9 @@ async fn ensure_sidestore_installed(provider: &impl IdeviceProvider) -> Result<(
     Ok(())
 }
 
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 // Step 8: Write file
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 
 async fn write_pairing_to_bundle(
     provider: &impl IdeviceProvider,
@@ -331,7 +284,6 @@ async fn write_pairing_to_bundle(
         .await
         .with_context(|| format!("VendContainer failed: {}", bundle_id))?;
 
-    // SideStore reads this file from /Documents/ inside its container
     let remote_path = format!("/Documents/{}", PAIRING_FILE_NAME);
 
     log_info(&format!("Writing to: {}", remote_path));
@@ -351,9 +303,9 @@ async fn write_pairing_to_bundle(
     Ok(())
 }
 
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 // Validate
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 
 fn validate_pairing_plist(data: &[u8]) -> Result<()> {
     let val: plist::Value = plist::from_bytes(data).context("Pairing data is not a plist")?;
@@ -376,11 +328,10 @@ fn validate_pairing_plist(data: &[u8]) -> Result<()> {
 
     for key in REQUIRED {
         if !dict.contains_key(*key) {
-            return Err(anyhow!("Pairing file is missing key `{}`", key));
+            return Err(anyhow!("Pairing file is missing key '{}'", key));
         }
     }
 
-    // Validate UDID is not empty
     if dict
         .get("UDID")
         .and_then(|v| v.as_string())
@@ -389,23 +340,21 @@ fn validate_pairing_plist(data: &[u8]) -> Result<()> {
         return Err(anyhow!("UDID is empty or invalid"));
     }
 
-    // Validate WiFi MAC is not empty
     if dict
         .get("WiFiMACAddress")
         .and_then(|v| v.as_string())
         .is_none_or(str::is_empty)
     {
-        return Err(anyhow!("WiFiMACAddress is empty — SideStore will reject it"));
+        return Err(anyhow!("WiFiMACAddress is empty - SideStore will reject it"));
     }
 
     Ok(())
 }
 
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 // Helpers
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 
-/// Host label — cached in a static so it stays consistent across calls.
 fn host_label() -> &'static str {
     static LABEL: OnceLock<String> = OnceLock::new();
     LABEL.get_or_init(|| {
@@ -426,7 +375,6 @@ fn needs_rppairing(major: u32, minor: u32) -> bool {
         || (major == RPPAIRING_MIN_MAJOR && minor >= RPPAIRING_MIN_MINOR)
 }
 
-/// List pairing records available on the system (for debugging).
 pub fn list_pairing_records() -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut dirs = Vec::new();
@@ -458,77 +406,74 @@ pub fn list_pairing_records() -> Vec<PathBuf> {
     found
 }
 
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 // Pretty print helpers
-// ═══════════════════════════════════════════════════════════
+// ============================================================
 
 fn print_header(title: &str) {
     println!();
-    println!("╔══════════════════════════════════════════════════════╗");
-    println!("║  {:^50}  ║", title);
-    println!("╚══════════════════════════════════════════════════════╝");
+    println!("======================================================");
+    println!("  {}", title);
+    println!("======================================================");
     println!();
 }
 
 fn print_footer_success() {
     println!();
-    println!("╔══════════════════════════════════════════════════════╗");
-    println!("║  ✅  DONE                                            ║");
-    println!("║                                                      ║");
-    println!("║  Open SideStore → Settings → Health Check            ║");
-    println!("║  to verify the pairing file.                         ║");
-    println!("╚══════════════════════════════════════════════════════╝");
+    println!("======================================================");
+    println!("  [OK] DONE");
+    println!();
+    println!("  Open SideStore -> Settings -> Health Check");
+    println!("  to verify the pairing file.");
+    println!("======================================================");
     println!();
 }
 
 fn print_trust_prompt() {
     println!();
-    println!("╔══════════════════════════════════════════════════════╗");
-    println!("║                                                      ║");
-    println!("║   👉  TAP 'TRUST' ON YOUR IPHONE NOW                 ║");
-    println!("║                                                      ║");
-    println!("║   1. Unlock the iPhone screen                        ║");
-    println!("║   2. Look for the 'Trust This Computer?' popup       ║");
-    println!("║   3. Tap 'Trust' + enter passcode if prompted        ║");
-    println!("║                                                      ║");
-    println!("║   (Times out after 60 seconds)                       ║");
-    println!("║                                                      ║");
-    println!("╚══════════════════════════════════════════════════════╝");
+    println!("======================================================");
+    println!();
+    println!("   >>>  TAP 'TRUST' ON YOUR IPHONE NOW");
+    println!();
+    println!("   1. Unlock the iPhone screen");
+    println!("   2. Look for the 'Trust This Computer?' popup");
+    println!("   3. Tap 'Trust' + enter passcode if prompted");
+    println!();
+    println!("   (Times out after 60 seconds)");
+    println!();
+    println!("======================================================");
     println!();
 }
 
 fn print_rppairing_warning(major: u32, minor: u32) {
     println!();
-    println!("⚠️  ═══════════════════════════════════════════════════════");
-    println!(
-        "⚠️  iOS {}.{} requires an RPPairing record for SideStore.",
-        major, minor
-    );
-    println!("⚠️");
-    println!("⚠️  Plan A currently only supports Lockdown pairing.");
-    println!("⚠️  The tool will try to write Lockdown pairing anyway,");
-    println!("⚠️  but you may hit `UnexpectedEof` when installing IPAs.");
-    println!("⚠️");
-    println!("⚠️  Recommendation:");
-    println!("⚠️  → Use `idevice_pair` on a PC to generate the pairing file");
-    println!("⚠️  → Or wait for the Plan B build (RPPairing support)");
-    println!("⚠️  ═══════════════════════════════════════════════════════");
+    println!("!! =====================================================");
+    println!("!! iOS {}.{} requires an RPPairing record for SideStore.", major, minor);
+    println!("!!");
+    println!("!! Plan A currently only supports Lockdown pairing.");
+    println!("!! The tool will try to write Lockdown pairing anyway,");
+    println!("!! but you may hit UnexpectedEof when installing IPAs.");
+    println!("!!");
+    println!("!! Recommendation:");
+    println!("!! -> Use idevice_pair on a PC to generate the pairing file");
+    println!("!! -> Or wait for the Plan B build (RPPairing support)");
+    println!("!! =====================================================");
     println!();
 }
 
 fn step(n: &str, msg: &str) {
     println!();
-    println!("▶ [{}] {}", n, msg);
+    println!("> [{}] {}", n, msg);
 }
 
 fn log_info(msg: &str) {
-    println!("   ℹ️  {}", msg);
+    println!("   [i] {}", msg);
 }
 
 fn log_success(msg: &str) {
-    println!("   ✅ {}", msg);
+    println!("   [OK] {}", msg);
 }
 
 fn log_warn(msg: &str) {
-    println!("   ⚠️  {}", msg);
+    println!("   [!] {}", msg);
 }
