@@ -8,12 +8,9 @@
 
 ## Features
 
-- 🔐 **Apple ID Login** — Apple's SRP-6a variant + GSA + 2FA trusted device
-- ✍️ **IPA Signing** — uses the `apple-codesign` crate, auto-chains WWDR G3 + Root CA
-- 📦 **Install via AFC** — no IPA repackaging, avoids the `0xe8008017` error
+- ✍️ **IPA Signing** — uses the `apple-codesign` crate, to faster and better performance
 - 🧩 **Extension support** — signs in correct bottom-up order
-- 🎯 **Special apps** — SideStore, AltStore, LiveContainer, StikStore
-- 🔑 **Auto cert** — creates a new cert when switching accounts (avoids `0xe8008015`)
+- 🎯 **Special apps** — (SideStore, AltStore, LiveContainer, StikStore)Apart from SideStore, other apps are unstable due to missing entitlements; this will be fixed later.
 - 🌐 **Cross-platform** — Linux, Android (Termux)
 
 ## Requirements
@@ -45,6 +42,14 @@ cargo build --release
 Or download a prebuilt binary from GitHub Actions artifacts.
 
 ## Usage
+**For termux user please clone this repository to make usbmuxd work on termux**
+
+```bash
+git clone https://github.com/khanh8249/termux-usbmuxd && cd termux-usbmuxd && chmod main.sh && ./main.sh
+```
+**Next, when the menu appears, enter "1" to install the necessary packages for running usbmuxd. Then, select option "2" to view the list of USB connections and locate your specific device to initiate the handshake with the Android USB Host API. A pop-up will appear on your Android device asking for permission to connect to the device; tap "Yes." Upon returning to the app, you should see your iOS device listed as `/dev/bus/usb/xxx/xxx`, indicating a successful connection. Finally, select option "3" to run usbmuxd on Termux (without root access), and you will then be able to easily communicate with your beloved iPhone.**
+
+## after that run this command
 
 ```bash
 ./fortiva
