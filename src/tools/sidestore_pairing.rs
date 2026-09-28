@@ -1,14 +1,4 @@
 //! SideStore pairing file setup.
-//!
-//! Flow:
-//! 1. Connect usbmuxd → lấy device đầu tiên
-//! 2. Lockdown → đọc ProductVersion
-//! 3. Pair (fresh, fallback cached record)
-//! 4. Stamp UDID vào pairing file
-//! 5. Bật WiFi debugging (optional)
-//! 6. Serialize + validate
-//! 7. Tìm SideStore bundle (auto-detect signing suffix)
-//! 8. Ghi vào /Documents/ALTPairingFile.mobiledevicepairing
 
 use anyhow::{anyhow, Context, Result};
 use std::path::PathBuf;
@@ -24,9 +14,12 @@ use idevice::services::installation_proxy::InstallationProxyClient;
 use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
 use idevice::IdeviceService;
 
+use tokio::io::AsyncWriteExt;   // ← THÊM dòng này
+
 use crate::tools::validate;
 
 const SIDESTORE_BUNDLE: &str = "com.SideStore.SideStore";
+// ...
 const PAIRING_FILE_NAME: &str = "ALTPairingFile.mobiledevicepairing";
 const TRUST_TIMEOUT_SECS: u64 = 60;
 const RPPAIRING_MIN_MAJOR: u32 = 17;
