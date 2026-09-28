@@ -69,7 +69,7 @@ where
         .into_iter()
         .next()
         .ok_or_else(|| anyhow!("Không tìm thấy device"))?;
-    let provider = device.to_provider(addr, 0, host_label());
+    let provider = device.to_provider(addr, host_label());
 
     let mut lockdown = LockdownClient::connect(&provider)
         .await
