@@ -10,7 +10,7 @@
 //! 4. Stamp UDID into the pairing file (required by SideStore)
 //! 5. Enable WiFi debugging (optional, often skipped on iOS 16+ over USB)
 //! 6. Serialize + validate the plist
-//! 7. Find SideStore bundle (auto-detect signing suffix like `.2375MA3R42`)
+//! 7. Find SideStore bundle (auto-detect signing suffix like .2375MA3R42)
 //! 8. Write to /Documents/ALTPairingFile.mobiledevicepairing
 //!
 //! ## Current limitations (Plan A)
@@ -105,17 +105,20 @@ where
     log_success("Pairing file is valid");
 
     // Step 7: Find SideStore (auto-detect bundle ID with signing suffix)
-    let Some(sidestore_id) = find_sidestore_bundle(&provider).await? else {
-        println!();
-        println!("======================================================");
-        println!("  [WARN] Pairing file NOT written");
-        println!();
-        println!("  Reason: SideStore is not installed on the iPhone.");
-        println!("  Action: Install SideStore first, then re-run this tool.");
-        println!("  Guide:  https://sidestore.io");
-        println!("======================================================");
-        println!();
-        return Ok(());
+    let sidestore_id = match find_sidestore_bundle(&provider).await? {
+        Some(id) => id,
+        None => {
+            println!();
+            println!("======================================================");
+            println!("  [WARN] Pairing file NOT written");
+            println!();
+            println!("  Reason: SideStore is not installed on the iPhone.");
+            println!("  Action: Install SideStore first, then re-run this tool.");
+            println!("  Guide:  https://sidestore.io");
+            println!("======================================================");
+            println!();
+            return Ok(());
+        }
     };
 
     // Step 8: Write file into the actual bundle container
@@ -225,12 +228,6 @@ async fn pair_fresh(lc: &mut LockdownClient) -> Result<PairingFile> {
 // Step 5: WiFi debugging (optional, often skipped on iOS 16+)
 // ============================================================
 
-/// Try to enable WiFi debugging.
-///
-/// This is optional. On iOS 16+, the device often replies with
-/// `SetProhibited` when this is attempted over USB-only connections,
-/// which is expected behavior — not an error. Sideloading over USB
-/// works fine without it.
 async fn try_enable_wifi_debugging(lc: &mut LockdownClient) {
     step("4/5", "Enabling WiFi debugging (optional)");
 
@@ -248,11 +245,9 @@ async fn try_enable_wifi_debugging(lc: &mut LockdownClient) {
         Err(e) => {
             let msg = format!("{}", e);
 
-            // Expected on iOS 16+ over USB-only connections
             if msg.contains("SetProhibited") {
                 log_info("Skipped (not supported over USB-only, this is fine)");
             } else {
-                // Unexpected error — still non-fatal, but log it
                 log_info(&format!("Skipped (non-critical): {}", msg));
             }
         }
@@ -263,14 +258,6 @@ async fn try_enable_wifi_debugging(lc: &mut LockdownClient) {
 // Step 7: Find SideStore (auto-detect bundle ID with suffix)
 // ============================================================
 
-/// Find SideStore bundle on the device.
-///
-/// Returns the actual bundle ID, which may include a signing suffix
-/// like `.2375MA3R42` (added by AltStore/SideStore during first sideload).
-///
-/// Match order:
-///   1. Exact match: `com.SideStore.SideStore`
-///   2. Prefixed match: `com.SideStore.SideStore.*` (excluding known extensions)
 async fn find_sidestore_bundle(provider: &impl IdeviceProvider) -> Result<Option<String>> {
     step("5/5", "Looking for SideStore on the iPhone");
 
@@ -283,7 +270,6 @@ async fn find_sidestore_bundle(provider: &impl IdeviceProvider) -> Result<Option
         .await
         .context("Failed to browse apps")?;
 
-    // Collect all bundle IDs
     let all_bundles: Vec<String> = apps
         .iter()
         .filter_map(|app| app.as_dictionary())
@@ -296,7 +282,6 @@ async fn find_sidestore_bundle(provider: &impl IdeviceProvider) -> Result<Option
 
     log_info(&format!("Scanned {} apps", all_bundles.len()));
 
-    // Debug: log any bundle containing "sidestore" (case-insensitive)
     for id in &all_bundles {
         if id.to_lowercase().contains("sidestore") {
             log_info(&format!("  candidate: {}", id));
@@ -304,27 +289,33 @@ async fn find_sidestore_bundle(provider: &impl IdeviceProvider) -> Result<Option
     }
 
     // Priority 1: exact match
-    if let Some(exact) = all_bundles
-        .iter()
-        .find(|id| id.as_str() == SIDESTORE_BUNDLE)
-    {
-        log_success(&format!("SideStore found (exact): {}", exact));
-        return Ok(Some(exact.clone()));
+    for id in &all_bundles {
+        if id == SIDESTORE_BUNDLE {
+            log_success(&format!("SideStore found (exact): {}", id));
+            return Ok(Some(id.clone()));
+        }
     }
 
-    // Priority 2: prefixed match, excluding known extension suffixes
+    // Priority 2: prefixed match, excluding known extensions
     let prefix = format!("{}.", SIDESTORE_BUNDLE);
-    let known_extensions = ["Widget", "NotificationExtension", "Share", "Intent", "Extension"];
+    let known_extensions = [
+        "Widget",
+        "NotificationExtension",
+        "Share",
+        "Intent",
+        "Extension",
+    ];
 
-    if let Some(suffixed) = all_bundles.iter().find(|id| {
+    for id in &all_bundles {
         if !id.starts_with(&prefix) {
-            return false;
+            continue;
         }
         let suffix = &id[prefix.len()..];
-        !known_extensions.iter().any(|ext| suffix == *ext)
-    }) {
-        log_success(&format!("SideStore found (suffixed): {}", suffixed));
-        return Ok(Some(suffixed.clone()));
+        let is_extension = known_extensions.iter().any(|ext| suffix == *ext);
+        if !is_extension {
+            log_success(&format!("SideStore found (suffixed): {}", id));
+            return Ok(Some(id.clone()));
+        }
     }
 
     log_warn("SideStore not found on the iPhone");
@@ -354,19 +345,17 @@ async fn write_pairing_to_bundle(
     log_info(&format!("Writing to: {}", remote_path));
 
     let mut file = afc
-        .open(&remote_path, AfcFopenMode   ::WrOnly)
+        .open(&remote_path, AfcFopenMode::WrOnly)
         .await
         .with_context(|| format!("Failed to open file: {}", remote_path))?;
 
-?;
-
     file.write_entire(data)
         .await
-        .with_context(|| format!("   Failed to write file: {}", remote_path))?;
+        .with_context(|| format!("Failed to write file: {}", remote_path))?;
 
-    file.close().await.context("Failed if to close AFC file")?;
+    file.close().await.context("Failed to close AFC file")?;
 
-    log_success(& dictformat!("Wrote {} bytes", data.len()));
+    log_success(&format!("Wrote {} bytes", data.len()));
     Ok(())
 }
 
@@ -399,17 +388,21 @@ fn validate_pairing_plist(data: &[u8]) -> Result<()> {
         }
     }
 
-    if dict
+    let udid_ok = dict
         .get("UDID")
         .and_then(|v| v.as_string())
-        .is_none_or(str::is_empty)
-    {
-        return Err(anyhow!("UDID is empty or invalid"));
+        .is_some_and(|s| !s.is_empty());
 
+    if !udid_ok {
+        return Err(anyhow!("UDID is empty or invalid"));
+    }
+
+    let mac_ok = dict
         .get("WiFiMACAddress")
         .and_then(|v| v.as_string())
-        .is_none_or(str::is_empty)
-    {
+        .is_some_and(|s| !s.is_empty());
+
+    if !mac_ok {
         return Err(anyhow!("WiFiMACAddress is empty - SideStore will reject it"));
     }
 
@@ -436,8 +429,7 @@ fn parse_ios_version(v: &str) -> (u32, u32) {
 }
 
 fn needs_rppairing(major: u32, minor: u32) -> bool {
-    major > RPPAIRING_MIN_MAJOR
-        || (major == RPPAIRING_MIN_MAJOR && minor >= RPPAIRING_MIN_MINOR)
+    major > RPPAIRING_MIN_MAJOR || (major == RPPAIRING_MIN_MAJOR && minor >= RPPAIRING_MIN_MINOR)
 }
 
 pub fn list_pairing_records() -> Vec<PathBuf> {
