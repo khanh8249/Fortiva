@@ -356,7 +356,7 @@ async fn write_pairing_to_bundle(
     let mut file = afc
         .open(&remote_path, AfcFopenMode   ::WrOnly)
         .await
-        .with_context(|| format!("Failed to open file: {}", remote_path))
+        .with_context(|| format!("Failed to open file: {}", remote_path))?;
 
 ?;
 
