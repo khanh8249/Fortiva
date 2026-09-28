@@ -14,7 +14,7 @@ use anyhow::{anyhow, Context, Result};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use idevice::lockdown::LockdowndClient;
+use idevice::lockdown::LockdownClient;
 use idevice::pairing_file::PairingFile;
 use idevice::provider::IdeviceProvider;
 use idevice::services::afc::opcode::AfcFopenMode;
@@ -37,8 +37,6 @@ const RPPAIRING_MIN_MINOR: u32 = 4;
 // ============================================================
 
 /// Set up pairing file cho SideStore trên device đang cắm USB.
-///
-/// `notify` là callback để prompt user (trả `Ok(true)` để tiếp tục, `Ok(false)` để hủy).
 pub async fn setup_sidestore_pairing<F>(notify: F) -> Result<()>
 where
     F: Fn(&str) -> Result<bool>,
@@ -78,9 +76,9 @@ where
         .into_iter()
         .next()
         .ok_or_else(|| anyhow!("Không tìm thấy device"))?;
-    let provider = device.to_provider(addr, host_label());
+    let provider = device.to_provider(addr, 0, host_label());
 
-    let mut lockdown = LockdowndClient::connect(&provider)
+    let mut lockdown = LockdownClient::connect(&provider)
         .await
         .context("Không kết nối được lockdown")?;
 
@@ -117,11 +115,6 @@ where
                 .await
                 .context("Không có cached pairing record. Chạy 'idevicepair pair' trước hoặc rút ra cắm lại.")?;
 
-            if pf.wifi_mac_address.is_empty() {
-                anyhow::bail!(
-                    "Cached pairing record thiếu WiFiMACAddress. SideStore sẽ từ chối."
-                );
-            }
             pf.udid = Some(udid.clone());
             println!("  ✓ Dùng cached pairing record");
             pf
@@ -146,7 +139,7 @@ where
         Ok(()) => println!("  ✓ WiFi debugging enabled"),
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("SetProhibited") {
+            if msg.contains("SetProhibited") || msg.contains("GetProhibited") {
                 println!("  [i] Skipped (USB-only, OK)");
             } else {
                 println!("  [!] Skipped: {}", msg);
@@ -242,7 +235,7 @@ pub fn list_pairing_records() -> Vec<PathBuf> {
 // Internal helpers
 // ============================================================
 
-async fn pair_fresh(lockdown: &mut LockdowndClient) -> Result<PairingFile> {
+async fn pair_fresh(lockdown: &mut LockdownClient) -> Result<PairingFile> {
     let host_id = uuid::Uuid::new_v4().to_string().to_uppercase();
     let system_buid = uuid::Uuid::new_v4().to_string().to_uppercase();
 
@@ -334,9 +327,9 @@ async fn write_pairing_to_bundle(
         .context("Không kết nối được House Arrest")?;
 
     let mut afc: AfcClient = ha
-        .vend_container(bundle_id)
+        .vend_documents(bundle_id.to_string())
         .await
-        .with_context(|| format!("VendContainer failed: {}", bundle_id))?;
+        .with_context(|| format!("VendDocuments failed: {}", bundle_id))?;
 
     let remote_path = format!("/Documents/{}", PAIRING_FILE_NAME);
     println!("  → Ghi vào: {}", remote_path);
@@ -346,11 +339,17 @@ async fn write_pairing_to_bundle(
         .await
         .with_context(|| format!("Không mở được file: {}", remote_path))?;
 
-    file.write_entire(data)
-        .await
-        .with_context(|| format!("Không ghi được file: {}", remote_path))?;
+    // Ghi toàn bộ dữ liệu — AFC tự động chunk 1MB [citation:3]
+    let mut written = 0;
+    while written < data.len() {
+        let n = file.write(&data[written..]).await?;
+        written += n;
+    }
 
-    file.close().await.context("Không đóng được AFC file")?;
+    // QUAN TRỌNG: phải close để commit dữ liệu xuống device [citation:4]
+    file.close()
+        .await
+        .context("Không đóng được AFC file — dữ liệu có thể chưa commit")?;
 
     println!("  ✓ Đã ghi {} bytes", data.len());
     Ok(())
