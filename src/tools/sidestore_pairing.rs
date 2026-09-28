@@ -1,317 +1,410 @@
-//! Validate pairing file cho SideStore / StikDebug / Sideloadly.
+//! SideStore pairing file setup.
 //!
-//! Kiểm tra:
-//! - Đủ key bắt buộc
-//! - Certificate / private key parse được
-//! - UDID khớp với device
-//! - WiFiMACAddress không rỗng
-//! - Không có key rỗng/bất thường
-//! - Cảnh báo cho iOS 17.4+ (cần RPPairing)
+//! Flow:
+//! 1. Connect usbmuxd → lấy device đầu tiên
+//! 2. Lockdown → đọc ProductVersion
+//! 3. Pair (fresh, fallback cached record)
+//! 4. Stamp UDID vào pairing file
+//! 5. Bật WiFi debugging (optional)
+//! 6. Serialize + validate
+//! 7. Tìm SideStore bundle (auto-detect signing suffix)
+//! 8. Ghi vào /Documents/ALTPairingFile.mobiledevicepairing
 
-use anyhow::{anyhow, Result};
-use plist::Value;
-use std::path::Path;
+use anyhow::{anyhow, Context, Result};
+use std::path::PathBuf;
+use std::time::Duration;
 
-/// Kết quả validate chi tiết.
-#[derive(Debug)]
-pub struct ValidationReport {
-    pub ok: bool,
-    pub errors: Vec<String>,
-    pub warnings: Vec<String>,
-    pub info: Vec<String>,
-    pub keys_present: Vec<String>,
-    pub keys_missing: Vec<String>,
-}
+use idevice::lockdown::LockdowndClient;
+use idevice::pairing_file::PairingFile;
+use idevice::provider::IdeviceProvider;
+use idevice::services::afc::opcode::AfcFopenMode;
+use idevice::services::afc::AfcClient;
+use idevice::services::house_arrest::HouseArrestClient;
+use idevice::services::installation_proxy::InstallationProxyClient;
+use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
+use idevice::IdeviceService;
 
-impl ValidationReport {
-    pub fn print(&self) {
-        println!();
-        println!("======================================================");
-        println!("  Pairing File Validation Report");
-        println!("======================================================");
-        println!();
+use crate::tools::validate;
 
-        if self.ok {
-            println!("  [OK] File hợp lệ");
-        } else {
-            println!("  [FAIL] File KHÔNG hợp lệ");
-        }
-        println!();
+const SIDESTORE_BUNDLE: &str = "com.SideStore.SideStore";
+const PAIRING_FILE_NAME: &str = "ALTPairingFile.mobiledevicepairing";
+const TRUST_TIMEOUT_SECS: u64 = 60;
+const RPPAIRING_MIN_MAJOR: u32 = 17;
+const RPPAIRING_MIN_MINOR: u32 = 4;
 
-        if !self.info.is_empty() {
-            println!("  Thông tin:");
-            for msg in &self.info {
-                println!("    [i] {}", msg);
-            }
-            println!();
-        }
+// ============================================================
+// Public API
+// ============================================================
 
-        if !self.keys_present.is_empty() {
-            println!("  Keys có mặt ({}):", self.keys_present.len());
-            for key in &self.keys_present {
-                println!("    [OK] {}", key);
-            }
-            println!();
-        }
+/// Set up pairing file cho SideStore trên device đang cắm USB.
+///
+/// `notify` là callback để prompt user (trả `Ok(true)` để tiếp tục, `Ok(false)` để hủy).
+pub async fn setup_sidestore_pairing<F>(notify: F) -> Result<()>
+where
+    F: Fn(&str) -> Result<bool>,
+{
+    println!();
+    println!("======================================================");
+    println!("  Setup SideStore Pairing File");
+    println!("======================================================");
+    println!();
 
-        if !self.keys_missing.is_empty() {
-            println!("  Keys THIẾU ({}):", self.keys_missing.len());
-            for key in &self.keys_missing {
-                println!("    [!!] {}", key);
-            }
-            println!();
-        }
+    // ─── Step 1: usbmuxd ───
+    println!("[1/6] Connecting to usbmuxd...");
+    let mut usbmuxd = UsbmuxdConnection::default()
+        .await
+        .context("Không kết nối được usbmuxd. Cài đặt: pkg install usbmuxd")?;
 
-        if !self.warnings.is_empty() {
-            println!("  Cảnh báo ({}):", self.warnings.len());
-            for msg in &self.warnings {
-                println!("    [!] {}", msg);
-            }
-            println!();
-        }
+    let devices = usbmuxd
+        .get_devices()
+        .await
+        .context("Không lấy được danh sách device")?;
 
-        if !self.errors.is_empty() {
-            println!("  Lỗi ({}):", self.errors.len());
-            for msg in &self.errors {
-                println!("    [X] {}", msg);
-            }
-            println!();
-        }
-
-        println!("======================================================");
-        println!();
+    if devices.is_empty() {
+        anyhow::bail!("Chưa cắm iPhone. Cắm cáp USB và mở khóa iPhone.");
     }
-}
 
-/// Key bắt buộc cho pairing file Lockdown.
-pub const REQUIRED_KEYS: &[&str] = &[
-    "DeviceCertificate",
-    "HostCertificate",
-    "HostPrivateKey",
-    "RootCertificate",
-    "RootPrivateKey",
-    "SystemBUID",
-    "HostID",
-    "WiFiMACAddress",
-    "UDID",
-];
+    let udid = devices[0].udid.clone();
+    println!("  ✓ UDID: {}", udid);
 
-/// Key khuyến nghị có (không bắt buộc nhưng SideStore dùng).
-pub const OPTIONAL_KEYS: &[&str] = &[
-    "EscrowBag",
-    "ProductType",
-    "ProductVersion",
-    "DeviceName",
-    "DevicePublicKey",
-    "HostPublicKey",
-];
+    // ─── Step 2: Lockdown ───
+    println!();
+    println!("[2/6] Connecting to lockdown...");
 
-/// Validate một file pairing.
-pub fn validate_bytes(
-    data: &[u8],
-    expected_udid: Option<&str>,
-) -> Result<ValidationReport> {
-    let mut report = ValidationReport {
-        ok: true,
-        errors: Vec::new(),
-        warnings: Vec::new(),
-        info: Vec::new(),
-        keys_present: Vec::new(),
-        keys_missing: Vec::new(),
-    };
+    let addr = UsbmuxdAddr::from_env_var().unwrap_or_else(|_| UsbmuxdAddr::default());
+    let device = usbmuxd
+        .get_devices()
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("Không tìm thấy device"))?;
+    let provider = device.to_provider(addr, host_label());
 
-    report.info.push(format!("Kích thước: {} bytes", data.len()));
+    let mut lockdown = LockdowndClient::connect(&provider)
+        .await
+        .context("Không kết nối được lockdown")?;
 
-    // Bước 1: Parse plist
-    let val: Value = match plist::from_bytes(data) {
-        Ok(v) => v,
+    let product_version = lockdown
+        .get_value(Some("ProductVersion"), None)
+        .await
+        .context("Không đọc được ProductVersion")?
+        .as_string()
+        .ok_or_else(|| anyhow!("ProductVersion không phải string"))?
+        .to_string();
+
+    let (major, minor) = parse_ios_version(&product_version);
+    println!("  ✓ iOS {}.{}", major, minor);
+
+    if needs_rppairing(major, minor) {
+        print_rppairing_warning(major, minor);
+    }
+
+    // ─── Step 3: Pair (fresh, fallback cached) ───
+    println!();
+    println!("[3/6] Pairing...");
+
+    let mut pairing_file = match pair_fresh(&mut lockdown).await {
+        Ok(pf) => {
+            println!("  ✓ Pair thành công");
+            pf
+        }
         Err(e) => {
-            report.ok = false;
-            report.errors.push(format!("Không parse được plist: {}", e));
-            return Ok(report);
+            println!("  [!] Pair fresh failed: {}", e);
+            println!("  → Fallback: dùng cached pairing record từ usbmuxd...");
+
+            let mut pf = usbmuxd
+                .get_pair_record(&udid)
+                .await
+                .context("Không có cached pairing record. Chạy 'idevicepair pair' trước hoặc rút ra cắm lại.")?;
+
+            if pf.wifi_mac_address.is_empty() {
+                anyhow::bail!(
+                    "Cached pairing record thiếu WiFiMACAddress. SideStore sẽ từ chối."
+                );
+            }
+            pf.udid = Some(udid.clone());
+            println!("  ✓ Dùng cached pairing record");
+            pf
         }
     };
 
-    let dict = match val.as_dictionary() {
-        Some(d) => d,
-        None => {
-            report.ok = false;
-            report.errors.push("Root không phải dictionary".to_string());
-            return Ok(report);
-        }
-    };
+    // ─── Step 4: Stamp UDID ───
+    pairing_file.udid = Some(udid.clone());
+    println!("  ✓ Đã stamp UDID vào pairing file");
 
-    report.info.push(format!("Tổng số key: {}", dict.len()));
-
-    // Bước 2: Check các key bắt buộc
-    for key in REQUIRED_KEYS {
-        if dict.contains_key(*key) {
-            report.keys_present.push((*key).to_string());
-        } else {
-            report.keys_missing.push((*key).to_string());
-            report.ok = false;
-            report.errors.push(format!("Thiếu key bắt buộc: {}", key));
-        }
-    }
-
-    // Check optional keys
-    for key in OPTIONAL_KEYS {
-        if dict.contains_key(*key) {
-            report.keys_present.push(format!("{} (tùy chọn)", key));
-        } else {
-            report
-                .warnings
-                .push(format!("Thiếu key tùy chọn: {} (không bắt buộc)", key));
+    // ─── Step 5: WiFi debugging (optional) ───
+    println!();
+    println!("[4/6] Enable WiFi debugging (optional)...");
+    match lockdown
+        .set_value(
+            "EnableWifiDebugging",
+            plist::Value::Boolean(true),
+            Some("com.apple.mobile.wireless_lockdown"),
+        )
+        .await
+    {
+        Ok(()) => println!("  ✓ WiFi debugging enabled"),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("SetProhibited") {
+                println!("  [i] Skipped (USB-only, OK)");
+            } else {
+                println!("  [!] Skipped: {}", msg);
+            }
         }
     }
 
-    // Nếu thiếu key bắt buộc thì return sớm
+    // ─── Step 6: Serialize + validate ───
+    println!();
+    println!("[5/6] Validate pairing file...");
+
+    let pairing_bytes = pairing_file
+        .serialize()
+        .context("Không serialize được pairing file")?;
+    println!("  ✓ Serialize: {} bytes", pairing_bytes.len());
+
+    let report = validate::validate_bytes(&pairing_bytes, Some(&udid))?;
+    report.print();
+
     if !report.ok {
-        return Ok(report);
+        anyhow::bail!("Pairing file KHÔNG hợp lệ — dừng lại trước khi ghi");
     }
 
-    // Bước 3: Validate từng field quan trọng
-    validate_string_field(dict, "UDID", &mut report, true);
-    validate_string_field(dict, "SystemBUID", &mut report, false);
-    validate_string_field(dict, "HostID", &mut report, false);
-    validate_string_field(dict, "WiFiMACAddress", &mut report, true);
+    // ─── Step 7: Find SideStore ───
+    println!();
+    println!("[6/6] Tìm SideStore và ghi file...");
 
-    // Bước 4: Validate UDID khớp device (nếu có expected)
-    if let Some(expected) = expected_udid {
-        if let Some(udid_val) = dict.get("UDID").and_then(|v| v.as_string()) {
-            if udid_val != expected {
-                report.ok = false;
-                report.errors.push(format!(
-                    "UDID không khớp: file có '{}' nhưng device là '{}'",
-                    udid_val, expected
-                ));
-            } else {
-                report.info.push(format!("UDID khớp device: {}", udid_val));
-            }
+    let sidestore_id = match find_sidestore_bundle(&provider).await? {
+        Some(id) => id,
+        None => {
+            println!();
+            println!("!! ==========================================");
+            println!("!!  SideStore chưa được cài trên iPhone");
+            println!("!!  Cài SideStore trước rồi chạy lại tool này");
+            println!("!!  https://sidestore.io");
+            println!("!! ==========================================");
+            let _ = notify("SideStore chưa cài. Cài rồi chạy lại tool.");
+            return Ok(());
         }
-    }
+    };
+    println!("  ✓ Tìm thấy: {}", sidestore_id);
 
-    // Bước 5: Validate data blob (certificates + keys)
-    validate_data_field(dict, "DeviceCertificate", &mut report);
-    validate_data_field(dict, "HostCertificate", &mut report);
-    validate_data_field(dict, "HostPrivateKey", &mut report);
-    validate_data_field(dict, "RootCertificate", &mut report);
-    validate_data_field(dict, "RootPrivateKey", &mut report);
+    // ─── Step 8: Write file ───
+    write_pairing_to_bundle(&provider, &sidestore_id, &pairing_bytes).await?;
 
-    // Bước 6: Validate định dạng WiFiMACAddress
-    if let Some(mac) = dict.get("WiFiMACAddress").and_then(|v| v.as_string()) {
-        if !is_valid_mac(mac) {
-            report
-                .warnings
-                .push(format!("WiFiMACAddress format bất thường: {}", mac));
-        }
-    }
+    println!();
+    println!("======================================================");
+    println!("  ✓ HOÀN THÀNH");
+    println!();
+    println!("  Mở SideStore → Settings → Health Check");
+    println!("  để kiểm tra pairing file.");
+    println!("======================================================");
+    println!();
 
-    // Bước 7: Check nếu chỉ có Lockdown cert (không có RPPairing)
-    if let Some(escrow) = dict.get("EscrowBag") {
-        if escrow.as_data().map(|d| d.is_empty()).unwrap_or(true) {
-            report
-                .warnings
-                .push("EscrowBag tồn tại nhưng rỗng".to_string());
-        }
-    }
+    let _ = notify("Done! Kiểm tra trong SideStore → Settings → Health Check.");
 
-    Ok(report)
+    Ok(())
 }
 
-/// Validate file pairing từ path.
-pub fn validate_file(path: &Path, expected_udid: Option<&str>) -> Result<ValidationReport> {
-    let data = std::fs::read(path)
-        .map_err(|e| anyhow!("Không đọc được file {}: {}", path.display(), e))?;
+/// Liệt kê tất cả file pairing record trên hệ thống.
+pub fn list_pairing_records() -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut dirs = Vec::new();
 
-    let mut report = validate_bytes(&data, expected_udid)?;
-    report.info.insert(0, format!("File: {}", path.display()));
-    Ok(report)
-}
+    if let Ok(prefix) = std::env::var("PREFIX") {
+        dirs.push(PathBuf::from(format!("{}/var/lib/lockdown", prefix)));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(PathBuf::from(format!("{}/.pymobiledevice3", home)));
+        dirs.push(PathBuf::from(format!("{}/.usbmuxd", home)));
+    }
+    dirs.push(PathBuf::from(
+        "/data/data/com.termux/files/usr/var/lib/lockdown",
+    ));
+    dirs.push(PathBuf::from("/var/lib/lockdown"));
+    dirs.push(PathBuf::from("/var/db/lockdown"));
 
-/// Validate 1 string field.
-fn validate_string_field(
-    dict: &plist::Dictionary,
-    key: &str,
-    report: &mut ValidationReport,
-    required_non_empty: bool,
-) {
-    match dict.get(key).and_then(|v| v.as_string()) {
-        Some(s) => {
-            if s.is_empty() {
-                if required_non_empty {
-                    report.ok = false;
-                    report
-                        .errors
-                        .push(format!("Field '{}' rỗng", key));
-                } else {
-                    report
-                        .warnings
-                        .push(format!("Field '{}' rỗng (không bắt buộc)", key));
+    for dir in dirs {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "plist") {
+                    found.push(path);
                 }
-            } else {
-                report.info.push(format!("{} = {}", key, s));
-            }
-        }
-        None => {
-            if required_non_empty {
-                report.ok = false;
-                report
-                    .errors
-                    .push(format!("Field '{}' không phải string", key));
-            } else {
-                report
-                    .warnings
-                    .push(format!("Field '{}' không phải string", key));
             }
         }
     }
+
+    found
 }
 
-/// Validate 1 data field.
-fn validate_data_field(dict: &plist::Dictionary, key: &str, report: &mut ValidationReport) {
-    match dict.get(key).and_then(|v| v.as_data()) {
-        Some(data) => {
-            if data.is_empty() {
-                report.ok = false;
-                report.errors.push(format!("Field '{}' rỗng (data blob)", key));
-            } else {
-                report
-                    .info
-                    .push(format!("{} = {} bytes", key, data.len()));
+// ============================================================
+// Internal helpers
+// ============================================================
+
+async fn pair_fresh(lockdown: &mut LockdowndClient) -> Result<PairingFile> {
+    let host_id = uuid::Uuid::new_v4().to_string().to_uppercase();
+    let system_buid = uuid::Uuid::new_v4().to_string().to_uppercase();
+
+    let mut trust_prompted = false;
+
+    for attempt in 1..=TRUST_TIMEOUT_SECS {
+        match lockdown
+            .pair_once(host_id.clone(), system_buid.clone(), Some(host_label()))
+            .await
+        {
+            Ok(pf) => return Ok(pf),
+            Err(idevice::IdeviceError::PairingDialogResponsePending) => {
+                if !trust_prompted {
+                    print_trust_prompt();
+                    trust_prompted = true;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                let _ = attempt; // suppress unused warning
+            }
+            Err(e) => {
+                return Err(anyhow!("Pair failed: {:?}", e));
             }
         }
-        None => {
-            report.ok = false;
-            report
-                .errors
-                .push(format!("Field '{}' không phải data blob", key));
-        }
     }
+
+    Err(anyhow!(
+        "Timeout sau {}s chờ Trust. Chạy lại và TAP Trust NGAY khi thấy popup.",
+        TRUST_TIMEOUT_SECS
+    ))
 }
 
-/// Check MAC address format (XX:XX:XX:XX:XX:XX).
-fn is_valid_mac(s: &str) -> bool {
-    let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() != 6 {
-        return false;
+async fn find_sidestore_bundle(provider: &impl IdeviceProvider) -> Result<Option<String>> {
+    let mut instproxy = InstallationProxyClient::connect(provider)
+        .await
+        .context("Không kết nối được InstallationProxy")?;
+
+    let apps = instproxy
+        .browse(None)
+        .await
+        .context("Không browse được apps")?;
+
+    let all_bundles: Vec<String> = apps
+        .iter()
+        .filter_map(|app| app.as_dictionary())
+        .filter_map(|d| {
+            d.get("CFBundleIdentifier")
+                .and_then(|v| v.as_string())
+                .map(String::from)
+        })
+        .collect();
+
+    println!("  [i] Scan {} apps", all_bundles.len());
+
+    // Priority 1: exact match
+    if let Some(id) = all_bundles.iter().find(|id| *id == SIDESTORE_BUNDLE) {
+        return Ok(Some(id.clone()));
     }
-    parts.iter().all(|p| {
-        p.len() == 2 && u8::from_str_radix(p, 16).is_ok()
+
+    // Priority 2: prefix match, exclude known extensions
+    let prefix = format!("{}.", SIDESTORE_BUNDLE);
+    let known_extensions = [
+        "Widget",
+        "NotificationExtension",
+        "Share",
+        "Intent",
+        "Extension",
+    ];
+
+    for id in &all_bundles {
+        if !id.starts_with(&prefix) {
+            continue;
+        }
+        let suffix = &id[prefix.len()..];
+        if !known_extensions.iter().any(|ext| suffix == *ext) {
+            return Ok(Some(id.clone()));
+        }
+    }
+
+    Ok(None)
+}
+
+async fn write_pairing_to_bundle(
+    provider: &impl IdeviceProvider,
+    bundle_id: &str,
+    data: &[u8],
+) -> Result<()> {
+    let ha = HouseArrestClient::connect(provider)
+        .await
+        .context("Không kết nối được House Arrest")?;
+
+    let mut afc: AfcClient = ha
+        .vend_container(bundle_id)
+        .await
+        .with_context(|| format!("VendContainer failed: {}", bundle_id))?;
+
+    let remote_path = format!("/Documents/{}", PAIRING_FILE_NAME);
+    println!("  → Ghi vào: {}", remote_path);
+
+    let mut file = afc
+        .open(&remote_path, AfcFopenMode::WrOnly)
+        .await
+        .with_context(|| format!("Không mở được file: {}", remote_path))?;
+
+    file.write_entire(data)
+        .await
+        .with_context(|| format!("Không ghi được file: {}", remote_path))?;
+
+    file.close().await.context("Không đóng được AFC file")?;
+
+    println!("  ✓ Đã ghi {} bytes", data.len());
+    Ok(())
+}
+
+// ============================================================
+// Misc helpers
+// ============================================================
+
+fn host_label() -> &'static str {
+    use std::sync::OnceLock;
+    static LABEL: OnceLock<String> = OnceLock::new();
+    LABEL.get_or_init(|| {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        format!("fortiva-{}", &id[..6])
     })
 }
 
-/// Cảnh báo nếu iOS version cần RPPairing.
-pub fn warn_if_needs_rppairing(ios_version: &str, report: &mut ValidationReport) {
-    let mut parts = ios_version.split('.');
-    let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+fn parse_ios_version(v: &str) -> (u32, u32) {
+    let mut parts = v.split('.');
+    let major = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    (major, minor)
+}
 
-    if major > 17 || (major == 17 && minor >= 4) {
-        report.warnings.push(format!(
-            "iOS {}.{} cần RPPairing record, không phải Lockdown pairing. \
-             File Lockdown này có thể bị SideStore từ chối khi cài IPA.",
-            major, minor
-        ));
-    }
+fn needs_rppairing(major: u32, minor: u32) -> bool {
+    major > RPPAIRING_MIN_MAJOR
+        || (major == RPPAIRING_MIN_MAJOR && minor >= RPPAIRING_MIN_MINOR)
+}
+
+fn print_trust_prompt() {
+    println!();
+    println!("!! ==========================================");
+    println!("!!  TAP 'TRUST' TRÊN IPHONE NGAY BÂY GIỜ");
+    println!("!!");
+    println!("!!  1. Mở khóa iPhone");
+    println!("!!  2. Tìm popup 'Trust This Computer?'");
+    println!("!!  3. Tap 'Trust' + nhập passcode");
+    println!("!!");
+    println!("!!  (Timeout sau {} giây)", TRUST_TIMEOUT_SECS);
+    println!("!! ==========================================");
+    println!();
+}
+
+fn print_rppairing_warning(major: u32, minor: u32) {
+    println!();
+    println!("!! ==========================================");
+    println!("!!  iOS {}.{} cần RPPairing record", major, minor);
+    println!("!!");
+    println!("!!  Tool này chỉ hỗ trợ Lockdown pairing.");
+    println!("!!  SideStore có thể từ chối file khi cài IPA.");
+    println!("!!");
+    println!("!!  Khuyến nghị: Dùng PC để gen pairing file,");
+    println!("!!  rồi import thủ công vào SideStore.");
+    println!("!! ==========================================");
+    println!();
 }
