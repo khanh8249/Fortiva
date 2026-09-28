@@ -1,6 +1,6 @@
 # Fortiva
 
-> iOS sideload tool written in Rust — sign and install IPAs on iPhone without jailbreak, runs on Termux/Android.
+> iOS sideload tool written in Rust — sign and install IPAs on iPhone without computer, runs on Termux/Android.
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/khanh8249/Fortiva/blob/main/LICENSE)
