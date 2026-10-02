@@ -1,198 +1,22 @@
-//! SideStore pairing file setup.
+// src/tools/sidestore_pairing.rs
+// Flow chuẩn: usbmuxd → lockdown session → enable WiFi → ghi vào SideStore
 
 use anyhow::{anyhow, Context, Result};
+use std::fs;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use idevice::lockdown::LockdownClient;
 use idevice::pairing_file::PairingFile;
 use idevice::provider::IdeviceProvider;
-use idevice::services::afc::opcode::AfcFopenMode;
-use idevice::services::afc::AfcClient;
+use idevice::services::afc::{AfcClient, opcode::AfcFopenMode};
 use idevice::services::house_arrest::HouseArrestClient;
 use idevice::services::installation_proxy::InstallationProxyClient;
 use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
 use idevice::IdeviceService;
 
-use tokio::io::AsyncWriteExt;   // ← THÊM dòng này
-
-use crate::tools::validate;
-
-const SIDESTORE_BUNDLE: &str = "com.SideStore.SideStore";
-// ...
+const SIDESTORE_PREFIX: &str = "com.SideStore.SideStore";
 const PAIRING_FILE_NAME: &str = "ALTPairingFile.mobiledevicepairing";
-const TRUST_TIMEOUT_SECS: u64 = 60;
-const RPPAIRING_MIN_MAJOR: u32 = 17;
-const RPPAIRING_MIN_MINOR: u32 = 4;
 
-// ============================================================
-// Public API
-// ============================================================
-
-/// Set up pairing file cho SideStore trên device đang cắm USB.
-pub async fn setup_sidestore_pairing<F>(notify: F) -> Result<()>
-where
-    F: Fn(&str) -> Result<bool>,
-{
-    println!();
-    println!("======================================================");
-    println!("  Setup SideStore Pairing File");
-    println!("======================================================");
-    println!();
-
-    // ─── Step 1: usbmuxd ───
-    println!("[1/6] Connecting to usbmuxd...");
-    let mut usbmuxd = UsbmuxdConnection::default()
-        .await
-        .context("Không kết nối được usbmuxd. Cài đặt: pkg install usbmuxd")?;
-
-    let devices = usbmuxd
-        .get_devices()
-        .await
-        .context("Không lấy được danh sách device")?;
-
-    if devices.is_empty() {
-        anyhow::bail!("Chưa cắm iPhone. Cắm cáp USB và mở khóa iPhone.");
-    }
-
-    let udid = devices[0].udid.clone();
-    println!("  ✓ UDID: {}", udid);
-
-    // ─── Step 2: Lockdown ───
-    println!();
-    println!("[2/6] Connecting to lockdown...");
-
-    let addr = UsbmuxdAddr::from_env_var().unwrap_or_else(|_| UsbmuxdAddr::default());
-    let device = usbmuxd
-        .get_devices()
-        .await?
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("Không tìm thấy device"))?;
-    let provider = device.to_provider(addr, host_label());
-
-    let mut lockdown = LockdownClient::connect(&provider)
-        .await
-        .context("Không kết nối được lockdown")?;
-
-    let product_version = lockdown
-        .get_value(Some("ProductVersion"), None)
-        .await
-        .context("Không đọc được ProductVersion")?
-        .as_string()
-        .ok_or_else(|| anyhow!("ProductVersion không phải string"))?
-        .to_string();
-
-    let (major, minor) = parse_ios_version(&product_version);
-    println!("  ✓ iOS {}.{}", major, minor);
-
-    if needs_rppairing(major, minor) {
-        print_rppairing_warning(major, minor);
-    }
-
-    // ─── Step 3: Pair (fresh, fallback cached) ───
-    println!();
-    println!("[3/6] Pairing...");
-
-    let mut pairing_file = match pair_fresh(&mut lockdown).await {
-        Ok(pf) => {
-            println!("  ✓ Pair thành công");
-            pf
-        }
-        Err(e) => {
-            println!("  [!] Pair fresh failed: {}", e);
-            println!("  → Fallback: dùng cached pairing record từ usbmuxd...");
-
-            let mut pf = usbmuxd
-                .get_pair_record(&udid)
-                .await
-                .context("Không có cached pairing record. Chạy 'idevicepair pair' trước hoặc rút ra cắm lại.")?;
-
-            pf.udid = Some(udid.clone());
-            println!("  ✓ Dùng cached pairing record");
-            pf
-        }
-    };
-
-    // ─── Step 4: Stamp UDID ───
-    pairing_file.udid = Some(udid.clone());
-    println!("  ✓ Đã stamp UDID vào pairing file");
-
-    // ─── Step 5: WiFi debugging (optional) ───
-    println!();
-    println!("[4/6] Enable WiFi debugging (optional)...");
-    match lockdown
-        .set_value(
-            "EnableWifiDebugging",
-            plist::Value::Boolean(true),
-            Some("com.apple.mobile.wireless_lockdown"),
-        )
-        .await
-    {
-        Ok(()) => println!("  ✓ WiFi debugging enabled"),
-        Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("SetProhibited") || msg.contains("GetProhibited") {
-                println!("  [i] Skipped (USB-only, OK)");
-            } else {
-                println!("  [!] Skipped: {}", msg);
-            }
-        }
-    }
-
-    // ─── Step 6: Serialize + validate ───
-    println!();
-    println!("[5/6] Validate pairing file...");
-
-    let pairing_bytes = pairing_file
-        .serialize()
-        .context("Không serialize được pairing file")?;
-    println!("  ✓ Serialize: {} bytes", pairing_bytes.len());
-
-    let report = validate::validate_bytes(&pairing_bytes, Some(&udid))?;
-    report.print();
-
-    if !report.ok {
-        anyhow::bail!("Pairing file KHÔNG hợp lệ — dừng lại trước khi ghi");
-    }
-
-    // ─── Step 7: Find SideStore ───
-    println!();
-    println!("[6/6] Tìm SideStore và ghi file...");
-
-    let sidestore_id = match find_sidestore_bundle(&provider).await? {
-        Some(id) => id,
-        None => {
-            println!();
-            println!("!! ==========================================");
-            println!("!!  SideStore chưa được cài trên iPhone");
-            println!("!!  Cài SideStore trước rồi chạy lại tool này");
-            println!("!!  https://sidestore.io");
-            println!("!! ==========================================");
-            let _ = notify("SideStore chưa cài. Cài rồi chạy lại tool.");
-            return Ok(());
-        }
-    };
-    println!("  ✓ Tìm thấy: {}", sidestore_id);
-
-    // ─── Step 8: Write file ───
-    write_pairing_to_bundle(&provider, &sidestore_id, &pairing_bytes).await?;
-
-    println!();
-    println!("======================================================");
-    println!("  ✓ HOÀN THÀNH");
-    println!();
-    println!("  Mở SideStore → Settings → Health Check");
-    println!("  để kiểm tra pairing file.");
-    println!("======================================================");
-    println!();
-
-    let _ = notify("Done! Kiểm tra trong SideStore → Settings → Health Check.");
-
-    Ok(())
-}
-
-/// Liệt kê tất cả file pairing record trên hệ thống.
 pub fn list_pairing_records() -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut dirs = Vec::new();
@@ -211,7 +35,7 @@ pub fn list_pairing_records() -> Vec<PathBuf> {
     dirs.push(PathBuf::from("/var/db/lockdown"));
 
     for dir in dirs {
-        if let Ok(entries) = std::fs::read_dir(&dir) {
+        if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().is_some_and(|e| e == "plist") {
@@ -224,90 +48,145 @@ pub fn list_pairing_records() -> Vec<PathBuf> {
     found
 }
 
-// ============================================================
-// Internal helpers
-// ============================================================
+pub async fn setup_sidestore_pairing<F>(notify: F) -> Result<()>
+where
+    F: Fn(&str) -> Result<bool>,
+{
+    println!("[sidestore] === Setup pairing file ===\n");
 
-async fn pair_fresh(lockdown: &mut LockdownClient) -> Result<PairingFile> {
-    let host_id = uuid::Uuid::new_v4().to_string().to_uppercase();
-    let system_buid = uuid::Uuid::new_v4().to_string().to_uppercase();
+    // 1. Kết nối usbmuxd
+    println!("[sidestore] Kết nối usbmuxd...");
+    let mut usbmuxd = UsbmuxdConnection::default()
+        .await
+        .context("Kết nối usbmuxd thất bại")?;
 
-    let mut trust_prompted = false;
+    let devices = usbmuxd
+        .get_devices()
+        .await
+        .context("Lấy devices thất bại")?;
 
-    for attempt in 1..=TRUST_TIMEOUT_SECS {
-        match lockdown
-            .pair_once(host_id.clone(), system_buid.clone(), Some(host_label()))
-            .await
-        {
-            Ok(pf) => return Ok(pf),
-            Err(idevice::IdeviceError::PairingDialogResponsePending) => {
-                if !trust_prompted {
-                    print_trust_prompt();
-                    trust_prompted = true;
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                let _ = attempt; // suppress unused warning
-            }
-            Err(e) => {
-                return Err(anyhow!("Pair failed: {:?}", e));
-            }
-        }
+    if devices.is_empty() {
+        return Err(anyhow!("Không có iPhone kết nối"));
     }
 
-    Err(anyhow!(
-        "Timeout sau {}s chờ Trust. Chạy lại và TAP Trust NGAY khi thấy popup.",
-        TRUST_TIMEOUT_SECS
-    ))
-}
+    let device = &devices[0];
+    println!("[sidestore] Device: {}", device.udid);
 
-async fn find_sidestore_bundle(provider: &impl IdeviceProvider) -> Result<Option<String>> {
-    let mut instproxy = InstallationProxyClient::connect(provider)
+    // 2. Lấy pairing record từ usbmuxd
+    println!("[sidestore] Lấy pairing record...");
+    let mut pairing_file = usbmuxd
+        .get_pair_record(&device.udid)
         .await
-        .context("Không kết nối được InstallationProxy")?;
+        .context("Lấy pairing record thất bại (chạy: idevicepair pair)")?;
+
+    pairing_file.udid = Some(device.udid.clone());
+    println!("[sidestore] Pairing record OK");
+
+    // 3. Kết nối lockdown + start session
+    let addr = UsbmuxdAddr::from_env_var()
+        .unwrap_or_else(|_| UsbmuxdAddr::default());
+    let provider = device.to_provider(addr, "fortiva");
+
+    println!("[sidestore] Start lockdown session...");
+    let mut lc = LockdownClient::connect(&provider)
+        .await
+        .context("Kết nối lockdown thất bại")?;
+
+    lc.start_session(&pairing_file)
+        .await
+        .context("Start session thất bại")?;
+    println!("[sidestore] ✅ Lockdown session started");
+
+    // 4. Enable WiFi Debugging
+    println!("[sidestore] Enable WiFi debugging...");
+    lc.set_value(
+        "EnableWifiDebugging",
+        plist::Value::Boolean(true),
+        Some("com.apple.mobile.wireless_lockdown"),
+    )
+    .await
+    .context("Enable WiFi debugging thất bại")?;
+    println!("[sidestore] ✅ WiFi debugging enabled");
+
+    // 5. Serialize pairing file
+    let pairing_data = pairing_file
+        .serialize()
+        .context("Serialize pairing file thất bại")?;
+    println!("[sidestore] Pairing file: {} bytes", pairing_data.len());
+
+    // 6. Tìm SideStore bundle
+    println!("\n[sidestore] Query app list...");
+    let mut instproxy = InstallationProxyClient::connect(&provider)
+        .await
+        .context("Kết nối InstallationProxy thất bại")?;
 
     let apps = instproxy
         .browse(None)
         .await
-        .context("Không browse được apps")?;
+        .context("Browse apps thất bại")?;
 
-    let all_bundles: Vec<String> = apps
+    let sidestore_bundles: Vec<String> = apps
         .iter()
         .filter_map(|app| app.as_dictionary())
         .filter_map(|d| {
             d.get("CFBundleIdentifier")
                 .and_then(|v| v.as_string())
-                .map(String::from)
+                .map(|s| s.to_string())
         })
+        .filter(|id| id.starts_with(SIDESTORE_PREFIX))
         .collect();
 
-    println!("  [i] Scan {} apps", all_bundles.len());
-
-    // Priority 1: exact match
-    if let Some(id) = all_bundles.iter().find(|id| *id == SIDESTORE_BUNDLE) {
-        return Ok(Some(id.clone()));
+    if sidestore_bundles.is_empty() {
+        return Err(anyhow!("Không tìm thấy SideStore trên iPhone"));
     }
 
-    // Priority 2: prefix match, exclude known extensions
-    let prefix = format!("{}.", SIDESTORE_BUNDLE);
-    let known_extensions = [
-        "Widget",
-        "NotificationExtension",
-        "Share",
-        "Intent",
-        "Extension",
-    ];
+    println!("[sidestore] ✅ {} bundle:", sidestore_bundles.len());
+    for b in &sidestore_bundles {
+        println!("  - {}", b);
+    }
 
-    for id in &all_bundles {
-        if !id.starts_with(&prefix) {
-            continue;
-        }
-        let suffix = &id[prefix.len()..];
-        if !known_extensions.iter().any(|ext| suffix == *ext) {
-            return Ok(Some(id.clone()));
+    // 7. Ghi pairing file vào từng bundle
+    println!("\n[sidestore] Ghi pairing file...");
+    let mut success = 0;
+    let mut failed = Vec::new();
+
+    for (i, bundle_id) in sidestore_bundles.iter().enumerate() {
+        println!(
+            "\n[sidestore] ({}/{}) {}",
+            i + 1,
+            sidestore_bundles.len(),
+            bundle_id
+        );
+
+        match write_pairing_to_bundle(&provider, bundle_id, &pairing_data).await {
+            Ok(()) => {
+                println!("[sidestore]   ✅ OK");
+                success += 1;
+            }
+            Err(e) => {
+                println!("[sidestore]   ❌ {}", e);
+                failed.push(bundle_id.clone());
+                if i + 1 < sidestore_bundles.len() {
+                    if !notify(&format!("Lỗi {}. Tiếp tục?", bundle_id))? {
+                        break;
+                    }
+                }
+            }
         }
     }
 
-    Ok(None)
+    println!(
+        "\n[sidestore] Thành công: {}/{}",
+        success,
+        sidestore_bundles.len()
+    );
+
+    if success == 0 {
+        return Err(anyhow!("Không ghi được bundle nào"));
+    }
+
+    println!("\n[sidestore] ✅ Hoàn tất!");
+    Ok(())
 }
 
 async fn write_pairing_to_bundle(
@@ -317,86 +196,27 @@ async fn write_pairing_to_bundle(
 ) -> Result<()> {
     let ha = HouseArrestClient::connect(provider)
         .await
-        .context("Không kết nối được House Arrest")?;
+        .context("House Arrest connect thất bại")?;
 
     let mut afc: AfcClient = ha
-        .vend_documents(bundle_id.to_string())
+        .vend_container(bundle_id)
         .await
-        .with_context(|| format!("VendDocuments failed: {}", bundle_id))?;
+        .with_context(|| format!("VendContainer thất bại: {}", bundle_id))?;
 
     let remote_path = format!("/Documents/{}", PAIRING_FILE_NAME);
-    println!("  → Ghi vào: {}", remote_path);
-
     let mut file = afc
         .open(&remote_path, AfcFopenMode::WrOnly)
         .await
-        .with_context(|| format!("Không mở được file: {}", remote_path))?;
+        .with_context(|| format!("Mở file để ghi thất bại: {}", remote_path))?;
 
-    // Ghi toàn bộ dữ liệu — AFC tự động chunk 1MB [citation:3]
-    let mut written = 0;
-    while written < data.len() {
-        let n = file.write(&data[written..]).await?;
-        written += n;
-    }
+    file.write_entire(data)
+        .await
+        .with_context(|| format!("Ghi file thất bại: {}", remote_path))?;
 
-    // QUAN TRỌNG: phải close để commit dữ liệu xuống device [citation:4]
     file.close()
         .await
-        .context("Không đóng được AFC file — dữ liệu có thể chưa commit")?;
+        .context("Đóng AFC file thất bại")?;
 
-    println!("  ✓ Đã ghi {} bytes", data.len());
+    println!("[sidestore]   Ghi {} bytes vào {}", data.len(), remote_path);
     Ok(())
-}
-
-// ============================================================
-// Misc helpers
-// ============================================================
-
-fn host_label() -> &'static str {
-    use std::sync::OnceLock;
-    static LABEL: OnceLock<String> = OnceLock::new();
-    LABEL.get_or_init(|| {
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("fortiva-{}", &id[..6])
-    })
-}
-
-fn parse_ios_version(v: &str) -> (u32, u32) {
-    let mut parts = v.split('.');
-    let major = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let minor = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    (major, minor)
-}
-
-fn needs_rppairing(major: u32, minor: u32) -> bool {
-    major > RPPAIRING_MIN_MAJOR
-        || (major == RPPAIRING_MIN_MAJOR && minor >= RPPAIRING_MIN_MINOR)
-}
-
-fn print_trust_prompt() {
-    println!();
-    println!("!! ==========================================");
-    println!("!!  TAP 'TRUST' TRÊN IPHONE NGAY BÂY GIỜ");
-    println!("!!");
-    println!("!!  1. Mở khóa iPhone");
-    println!("!!  2. Tìm popup 'Trust This Computer?'");
-    println!("!!  3. Tap 'Trust' + nhập passcode");
-    println!("!!");
-    println!("!!  (Timeout sau {} giây)", TRUST_TIMEOUT_SECS);
-    println!("!! ==========================================");
-    println!();
-}
-
-fn print_rppairing_warning(major: u32, minor: u32) {
-    println!();
-    println!("!! ==========================================");
-    println!("!!  iOS {}.{} cần RPPairing record", major, minor);
-    println!("!!");
-    println!("!!  Tool này chỉ hỗ trợ Lockdown pairing.");
-    println!("!!  SideStore có thể từ chối file khi cài IPA.");
-    println!("!!");
-    println!("!!  Khuyến nghị: Dùng PC để gen pairing file,");
-    println!("!!  rồi import thủ công vào SideStore.");
-    println!("!! ==========================================");
-    println!();
 }
