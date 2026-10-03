@@ -87,7 +87,7 @@ impl Session {
 
     /// Can refresh khong (mac dinh > 3 phut = 180s).
     pub fn needs_refresh(&self) -> bool {
-        self.token_age_sec() > 180
+        self.token_age_sec() > 420 // tương đương vs 7phút nếu hết thì sẽ buộc user login vào
     }
 
     pub fn time_left_str(&self) -> String {
