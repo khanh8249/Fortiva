@@ -15,7 +15,7 @@ use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
 use idevice::IdeviceService;
 
 const SIDESTORE_PREFIX: &str = "com.SideStore.SideStore";
-const PAIRING_FILE_NAME: &str = "ALTPairingFile.mobiledevicepairing";
+const PAIRING_FILE_NAME: &str = "pairingFile.plist";
 
 pub fn list_pairing_records() -> Vec<PathBuf> {
     let mut found = Vec::new();
