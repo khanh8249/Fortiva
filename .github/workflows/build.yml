@@ -43,7 +43,7 @@ jobs:
             tool: cross
             use_upx: true
 
-          # Android ARM64 & ARMv7 (Khuyên tắt UPX để tránh dính Segfault / SELinux crash)
+          # Android ARM64 & ARMv7 (Tắt UPX để tránh dính Segfault / lỗi SELinux)
           - os: ubuntu-latest
             target: aarch64-linux-android
             binary_name: fortiva
@@ -70,22 +70,21 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      # Cài đặt UPX siêu tốc bằng install-action (hỗ trợ cả Linux lẫn Windows)
-      -       # Cài đặt UPX
+      # Cài đặt UPX (chạy chuẩn qua action v2)
       - name: Setup UPX
         if: matrix.use_upx == true
         uses: taiki-e/install-action@v2
         with:
           tool: upx
 
-      # Cài đặt cross
+      # Cài đặt cross (chạy chuẩn qua action v2)
       - name: Setup cross
         if: matrix.tool == 'cross'
         uses: taiki-e/install-action@v2
         with:
           tool: cross
 
-      # Cài đặt cargo-ndk
+      # Cài đặt cargo-ndk (chạy chuẩn qua action v2)
       - name: Setup cargo-ndk
         if: matrix.tool == 'cargo-ndk'
         uses: taiki-e/install-action@v2
@@ -111,7 +110,7 @@ jobs:
       - name: Compress binary with UPX
         if: matrix.use_upx == true
         run: upx --best --lzma target/${{ matrix.target }}/release/${{ matrix.binary_name }}
-        continue-on-error: true # Đề phòng target nào dở chứng UPX từ chối nén thì CI vẫn xanh lè
+        continue-on-error: true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
