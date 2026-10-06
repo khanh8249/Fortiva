@@ -71,17 +71,26 @@ jobs:
           key: ${{ matrix.target }}
 
       # Cài đặt UPX siêu tốc bằng install-action (hỗ trợ cả Linux lẫn Windows)
+      -       # Cài đặt UPX
       - name: Setup UPX
         if: matrix.use_upx == true
-        uses: taiki-e/install-action@upx
+        uses: taiki-e/install-action@v2
+        with:
+          tool: upx
 
+      # Cài đặt cross
       - name: Setup cross
         if: matrix.tool == 'cross'
-        uses: taiki-e/install-action@cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
+      # Cài đặt cargo-ndk
       - name: Setup cargo-ndk
         if: matrix.tool == 'cargo-ndk'
-        uses: taiki-e/install-action@cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
 
       # Build theo từng nhánh công cụ
       - name: Build with cargo (Native)
