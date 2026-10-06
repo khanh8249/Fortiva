@@ -43,7 +43,7 @@ jobs:
             tool: cross
             use_upx: true
 
-          # Android ARM64 & ARMv7 (Tắt UPX để tránh dính Segfault / lỗi SELinux)
+          # Android ARM64 & ARMv7 (Tắt UPX để tránh lỗi SELinux / Segfault)
           - os: ubuntu-latest
             target: aarch64-linux-android
             binary_name: fortiva
@@ -70,21 +70,21 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      # Cài đặt UPX (chạy chuẩn qua action v2)
+      # Cài đặt UPX
       - name: Setup UPX
         if: matrix.use_upx == true
         uses: taiki-e/install-action@v2
         with:
           tool: upx
 
-      # Cài đặt cross (chạy chuẩn qua action v2)
+      # Cài đặt cross
       - name: Setup cross
         if: matrix.tool == 'cross'
         uses: taiki-e/install-action@v2
         with:
           tool: cross
 
-      # Cài đặt cargo-ndk (chạy chuẩn qua action v2)
+      # Cài đặt cargo-ndk
       - name: Setup cargo-ndk
         if: matrix.tool == 'cargo-ndk'
         uses: taiki-e/install-action@v2
@@ -100,11 +100,10 @@ jobs:
         if: matrix.tool == 'cross'
         run: cross build --release --target ${{ matrix.target }}
 
+      # Android tự nhận ANDROID_NDK_ROOT từ hệ thống, bỏ env rỗng đi là xong
       - name: Build with cargo-ndk (Android)
         if: matrix.tool == 'cargo-ndk'
         run: cargo ndk --target ${{ matrix.target }} build --release
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
 
       # Nén binary bằng UPX
       - name: Compress binary with UPX
