@@ -1,0 +1,112 @@
+name: Build fortiva
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: fortiva.exe
+            tool: cargo
+            use_upx: true
+
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: fortiva
+            tool: cargo
+            use_upx: true
+
+          # Linux ARM64 & ARMv7 (Chạy qua Docker container)
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            binary_name: fortiva
+            tool: cross
+            use_upx: true
+
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            binary_name: fortiva
+            tool: cross
+            use_upx: true
+
+          # Android ARM64 & ARMv7 (Khuyên tắt UPX để tránh dính Segfault / SELinux crash)
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            binary_name: fortiva
+            tool: cargo-ndk
+            use_upx: false
+
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+            binary_name: fortiva
+            tool: cargo-ndk
+            use_upx: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Cài đặt UPX siêu tốc bằng install-action (hỗ trợ cả Linux lẫn Windows)
+      - name: Setup UPX
+        if: matrix.use_upx == true
+        uses: taiki-e/install-action@upx
+
+      - name: Setup cross
+        if: matrix.tool == 'cross'
+        uses: taiki-e/install-action@cross
+
+      - name: Setup cargo-ndk
+        if: matrix.tool == 'cargo-ndk'
+        uses: taiki-e/install-action@cargo-ndk
+
+      # Build theo từng nhánh công cụ
+      - name: Build with cargo (Native)
+        if: matrix.tool == 'cargo'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build with cross (Linux ARM)
+        if: matrix.tool == 'cross'
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build with cargo-ndk (Android)
+        if: matrix.tool == 'cargo-ndk'
+        run: cargo ndk --target ${{ matrix.target }} build --release
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+
+      # Nén binary bằng UPX
+      - name: Compress binary with UPX
+        if: matrix.use_upx == true
+        run: upx --best --lzma target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+        continue-on-error: true # Đề phòng target nào dở chứng UPX từ chối nén thì CI vẫn xanh lè
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fortiva-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+          if-no-files-found: error
